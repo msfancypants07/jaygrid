@@ -72,7 +72,7 @@ async function account(request, config) {
 }
 export async function handle(request, route = new URL(request.url).pathname) {
   const config = settings();
-  if (route === '/api/search' || route === '/api/terms') return site.fetch(request);
+  if (route === '/api/search' || route === '/api/terms' || route === '/api/watch-search') return site.fetch(request);
   if (route === '/api/account' && request.method === 'GET') {
     if (!config.configured) return respond({ configured: false, user: null });
     const current = await account(request, config);

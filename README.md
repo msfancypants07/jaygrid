@@ -1,6 +1,6 @@
 # JayGrid
 
-An unofficial Johns Hopkins course planner. Choose a semester, keep multiple named schedules for it, search JHU's public course listings, spot time conflicts, and export a calendar or JSON backup. The global watchlist saves courses from past terms with per-course notes and lets you check whether they are listed again.
+An unofficial Johns Hopkins course planner. Choose a semester, keep multiple named schedules for it, search JHU's public course listings, spot time conflicts, and export a calendar or JSON backup. The global watchlist searches across all catalog years, shows up to five past listing terms per course, saves notes, and lets you check whether a course is listed again.
 
 Live site: [jaygrid.vercel.app](https://jaygrid.vercel.app/)
 

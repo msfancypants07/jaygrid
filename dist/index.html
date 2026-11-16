@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
-  <script defer src="app.js?v=6"></script>
+  <script defer src="app.js?v=7"></script>
 </head>
 <body>
   <header class="topbar">
@@ -50,7 +50,7 @@
       <div class="watch-heading"><div><h1>Watchlist</h1><p>Save courses across semesters and check when they appear again.</p></div><button id="import-device-watchlist" type="button" hidden>Import from this device</button></div>
       <div class="watch-toolbar"><label for="watch-term">Check listings for <select id="watch-term" aria-label="Semester to check"></select></label><button id="check-watchlist" type="button">Refresh statuses</button><span id="watch-status" role="status" aria-live="polite"></span></div>
       <div id="watch-items" class="watch-items"></div>
-      <div class="watch-discovery"><h2>Find a course to watch</h2><form id="watch-search-form"><input id="watch-query" placeholder="Course title or code" aria-label="Search course listings" autocomplete="off" required minlength="2"><select id="watch-search-term" aria-label="Search semester"></select><button type="submit">Search courses</button></form><p id="watch-search-status" role="status" aria-live="polite"></p><div id="watch-search-results" class="watch-search-results"></div><button id="watch-load-more" type="button" hidden>Load more</button><details class="watch-manual"><summary>Add a course by code</summary><form id="watch-manual-form"><input name="code" placeholder="EN.601.415" aria-label="Course code" required><input name="title" placeholder="Course title" aria-label="Course title" required><button type="submit">Add to watchlist</button></form></details></div>
+      <div class="watch-discovery"><h2>Find a course to watch</h2><form id="watch-search-form"><input id="watch-query" placeholder="Search course titles or codes across all years" aria-label="Search all years" autocomplete="off" required minlength="2"><button type="submit">Search all years</button></form><p id="watch-search-status" role="status" aria-live="polite"></p><div id="watch-search-results" class="watch-search-results"></div><details class="watch-manual"><summary>Add a course by code</summary><form id="watch-manual-form"><input name="code" placeholder="EN.601.415" aria-label="Course code" required><input name="title" placeholder="Course title" aria-label="Course title" required><button type="submit">Add to watchlist</button></form></details></div>
     </section>
     <footer><a id="footer-link" href="https://courses.jhu.edu/?terms=Spring+2027" target="_blank" rel="noopener noreferrer">JHU course search ↗</a></footer>
   </main>

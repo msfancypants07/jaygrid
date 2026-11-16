@@ -70,7 +70,7 @@ try {
   assert.equal(springAgain.schedules[0].entries[0].code, entry.code);
   const emptyWatchlist = await (await handle(request('/api/watchlist', { headers: { cookie: session } }))).json();
   assert.deepEqual(emptyWatchlist, { items: [], version: 0 });
-  const watched = [{ code: 'EN.601.415', title: 'Databases', notes: 'Consider as an elective', addedAt: new Date().toISOString(), seenTerms: ['Fall 2026'], checks: {} }];
+  const watched = [{ code: 'EN.601.415', title: 'Databases', notes: 'Consider as an elective', addedAt: new Date().toISOString(), seenTerms: ['Fall 2026', 'Intersession 2026'], checks: {} }];
   const watchSave = await handle(request('/api/watchlist', { method: 'PUT', headers: { cookie: session, origin, 'content-type': 'application/json' }, body: JSON.stringify({ items: watched, version: 0 }) }));
   assert.equal(watchSave.status, 200);
   const savedWatchlist = await (await handle(request('/api/watchlist', { headers: { cookie: session } }))).json();

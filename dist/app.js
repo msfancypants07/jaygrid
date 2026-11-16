@@ -32,10 +32,9 @@ let watchSaving = false;
 let watchChecking = false;
 let watchLoadError = '';
 let publishedTerms = null;
-let publishedTermsError = false;
 let selectedWatchTerm = terms.includes(localStorage.getItem(WATCH_TERM_KEY)) ? localStorage.getItem(WATCH_TERM_KEY) : selectedTerm;
-let selectedHistoryTerm = '';
-const watchSearch = { query: '', term: '', page: 0, found: 0, results: [] };
+const watchSearch = { query: '', results: [], truncated: false };
+let watchSearchRequestId = 0;
 const watchErrors = new Set();
 const noteDrafts = new Map();
 
@@ -423,7 +422,7 @@ function normalizeWatchItem(item) {
   }
   return { code, title: item.title.trim().slice(0, 300), notes: String(item.notes || '').slice(0, 2000),
     addedAt: !Number.isNaN(Date.parse(item.addedAt)) ? item.addedAt : new Date().toISOString(),
-    seenTerms: [...new Set((Array.isArray(item.seenTerms) ? item.seenTerms : []).filter(term => terms.includes(term)))].slice(-20), checks };
+    seenTerms: [...new Set((Array.isArray(item.seenTerms) ? item.seenTerms : []).filter(term => /^(Spring|Summer|Fall|Intersession|Winter) 20\d{2}$/.test(term)))].slice(-20), checks };
 }
 function loadGuestWatchlist() {
   try {
@@ -434,6 +433,17 @@ function loadGuestWatchlist() {
   } catch { return []; }
 }
 function watchStatus(message) { document.getElementById('watch-status').textContent = message; }
+function termRank(term) {
+  const [season, year] = term.split(' '), order = { Intersession: 0, Winter: 0, Spring: 1, Summer: 2, Fall: 3 };
+  return Number(year) * 4 + (order[season] || 0);
+}
+function elapsedSince(date) {
+  const then = new Date(`${date}T12:00:00Z`), now = new Date();
+  const months = Math.max(0, (now.getUTCFullYear() - then.getUTCFullYear()) * 12 + now.getUTCMonth() - then.getUTCMonth());
+  if (months < 4) return 'this term';
+  if (months < 12) return `about ${months} months ago`;
+  return `about ${Math.round(months / 6) / 2} years ago`;
+}
 function showView(view) {
   const watching = view === 'watchlist';
   document.getElementById('planner-view').hidden = watching;
@@ -450,28 +460,15 @@ function renderWatchTermOptions() {
   for (const term of terms) { const option = document.createElement('option'); option.value = term; option.textContent = term; select.append(option); }
   select.value = selectedWatchTerm;
 }
-function renderHistoryTermOptions() {
-  const select = document.getElementById('watch-search-term'); select.replaceChildren();
-  if (!publishedTerms?.length) {
-    const option = document.createElement('option'); option.textContent = publishedTermsError ? 'Terms unavailable' : 'Loading terms…'; option.value = ''; select.append(option);
-    select.disabled = true; document.querySelector('#watch-search-form button').disabled = true; return;
-  }
-  if (!publishedTerms.includes(selectedHistoryTerm)) {
-    const position = publishedTerms.indexOf(selectedWatchTerm);
-    selectedHistoryTerm = publishedTerms[Math.max(0, position + 1)] || publishedTerms[0];
-  }
-  for (const term of publishedTerms) { const option = document.createElement('option'); option.value = term; option.textContent = term; select.append(option); }
-  select.value = selectedHistoryTerm; select.disabled = false; document.querySelector('#watch-search-form button').disabled = false;
-}
 async function loadPublishedTerms() {
   if (publishedTerms) return publishedTerms;
   try {
     const response = await fetch('/api/terms'); const data = await response.json();
     if (!response.ok || !Array.isArray(data.terms)) throw new Error(data.error || 'Could not check catalog terms.');
-    publishedTerms = data.terms.filter(term => terms.includes(term)); publishedTermsError = false;
-    renderHistoryTermOptions(); renderWatchlist(); return publishedTerms;
+    publishedTerms = data.terms.filter(term => terms.includes(term));
+    renderWatchlist(); return publishedTerms;
   } catch (error) {
-    publishedTermsError = true; renderHistoryTermOptions(); watchStatus(error.message || 'Could not check catalog terms.'); return null;
+    watchStatus(error.message || 'Could not check catalog terms.'); return null;
   }
 }
 function watchCheckLabel(item) {
@@ -500,7 +497,7 @@ function renderWatchlist() {
     const info = document.createElement('div'), code = document.createElement('div'), title = document.createElement('div'), meta = document.createElement('div');
     code.className = 'watch-row-code'; title.className = 'watch-row-title'; meta.className = 'watch-row-meta';
     text(code, item.code); text(title, item.title);
-    const seen = item.seenTerms.slice(-3).join(', ');
+    const seen = [...item.seenTerms].sort((a, b) => termRank(b) - termRank(a)).slice(0, 5).join(', ');
     const checked = item.checks[selectedWatchTerm]?.checkedAt;
     text(meta, `${seen ? `Seen in ${seen}` : 'No past listing recorded'}${checked ? ` · Checked ${new Date(checked).toLocaleDateString()}` : ''}`);
     info.append(code, title, meta);
@@ -557,8 +554,8 @@ async function loadCloudWatchlist() {
     watchlist = items; watchVersion = data.version; watchReady = true; renderWatchlist(); renderHistoryResults(); watchStatus('Synced to your account.');
   } catch (error) { watchLoadError = error.message || 'Could not load your watchlist. Reload to retry.'; watchStatus(watchLoadError); renderWatchlist(); }
 }
-async function addWatchCourse(course, seenTerm = '') {
-  const item = normalizeWatchItem({ code: course.code, title: course.title, notes: '', addedAt: new Date().toISOString(), seenTerms: seenTerm ? [seenTerm] : [], checks: {} });
+async function addWatchCourse(course, seenTerms = []) {
+  const item = normalizeWatchItem({ code: course.code, title: course.title, notes: '', addedAt: new Date().toISOString(), seenTerms, checks: {} });
   if (!item) { watchStatus('Use a course code like EN.601.415.'); return false; }
   if (watchlist.some(saved => saved.code === item.code)) { watchStatus(`${item.code} is already on your watchlist.`); return false; }
   if (watchlist.length >= 100) { watchStatus('The watchlist can hold up to 100 courses.'); return false; }
@@ -566,39 +563,46 @@ async function addWatchCourse(course, seenTerm = '') {
 }
 function renderHistoryResults() {
   const list = document.getElementById('watch-search-results'); list.replaceChildren();
-  const unique = new Map(); for (const course of watchSearch.results) if (!unique.has(course.code)) unique.set(course.code, course);
-  for (const course of unique.values()) {
+  for (const course of watchSearch.results) {
     const row = document.createElement('div'); row.className = 'watch-search-result';
     const info = document.createElement('div'), name = document.createElement('strong'), meta = document.createElement('span');
-    text(name, course.title); text(meta, `${course.code} · Seen in ${watchSearch.term}`); info.append(name, meta);
+    info.className = 'watch-search-result-info';
+    const history = Array.isArray(course.history) ? course.history.slice(0, 5) : [];
+    text(name, course.title);
+    text(meta, history.length ? `${course.code} · Last listed ${history[0].term} (${elapsedSince(history[0].date)})` : `${course.code} · No past listing found`);
+    info.append(name, meta);
+    if (history.length) {
+      const periods = document.createElement('div'); periods.className = 'watch-search-history';
+      const label = document.createElement('span'); label.className = 'history-label'; text(label, 'Past listings'); periods.append(label);
+      for (const occurrence of history) { const chip = document.createElement('span'); chip.className = 'history-term'; text(chip, occurrence.term); periods.append(chip); }
+      info.append(periods);
+    }
+    if (course.upcoming) { const upcoming = document.createElement('span'); upcoming.className = 'watch-upcoming'; text(upcoming, `Also listed for ${course.upcoming.term}`); info.append(upcoming); }
+    if (!course.historyComplete && history.length < 5) { const note = document.createElement('span'); note.className = 'watch-history-note'; text(note, 'Earlier catalog history may be incomplete.'); info.append(note); }
     const add = document.createElement('button'); add.type = 'button';
     const watched = watchlist.some(item => item.code === course.code);
     text(add, watched ? 'Watching' : '+ Watch'); add.disabled = watched || !watchReady || watchSaving || watchChecking;
-    add.onclick = () => addWatchCourse(course, watchSearch.term); row.append(info, add); list.append(row);
+    add.onclick = () => addWatchCourse(course, history.map(occurrence => occurrence.term)); row.append(info, add); list.append(row);
   }
-  document.getElementById('watch-load-more').hidden = !watchSearch.query || watchSearch.results.length >= watchSearch.found || watchSearch.page >= 20;
 }
-async function searchHistory(query, page = 1) {
-  const q = query.trim(), term = selectedHistoryTerm;
-  if (q.length < 2 || !publishedTerms?.includes(term)) return;
+async function searchAcrossYears(query) {
+  const q = query.trim();
+  if (q.length < 2) return;
+  const requestId = ++watchSearchRequestId;
   const status = document.getElementById('watch-search-status');
-  status.textContent = 'Searching JHU course listings…';
-  if (page === 1) { watchSearch.query = q; watchSearch.term = term; watchSearch.page = 0; watchSearch.found = 0; watchSearch.results = []; renderHistoryResults(); }
+  const button = document.querySelector('#watch-search-form button'); button.disabled = true;
+  status.textContent = 'Searching all JHU catalog years…';
+  watchSearch.query = q; watchSearch.results = []; watchSearch.truncated = false; renderHistoryResults();
   try {
-    let data; const cached = recent.find(x => x.key === cacheKey(q, page, term) && x.when + CACHE_TTL > Date.now() && x.data.term === term && x.data.query?.trim().toLowerCase() === q.toLowerCase());
-    if (cached) data = cached.data;
-    else {
-      const response = await fetch(`/api/search?q=${encodeURIComponent(q)}&term=${encodeURIComponent(term)}&page=${page}`); data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Course search unavailable.');
-      if (data.term !== term || data.query?.trim().toLowerCase() !== q.toLowerCase() || data.page !== page || !Array.isArray(data.results)) throw new Error('Search returned mismatched results.');
-      cacheResult(q, page, data);
-    }
-    if (watchSearch.query !== q || watchSearch.term !== term) return;
-    watchSearch.page = page; watchSearch.found = data.found;
-    watchSearch.results = page === 1 ? data.results : [...watchSearch.results, ...data.results];
+    const response = await fetch(`/api/watch-search?q=${encodeURIComponent(q)}`), data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Course search unavailable.');
+    if (data.query?.trim().toLowerCase() !== q.toLowerCase() || !Array.isArray(data.results)) throw new Error('Search returned mismatched results.');
+    if (requestId !== watchSearchRequestId) return;
+    watchSearch.results = data.results; watchSearch.truncated = Boolean(data.truncated);
     renderHistoryResults();
-    status.textContent = data.found ? `${new Set(watchSearch.results.map(course => course.code)).size} courses from ${watchSearch.results.length} of ${data.found} sections in ${term}.` : `No courses found for “${q}” in ${term}.`;
-  } catch (error) { status.textContent = error.message || 'Course search unavailable.'; }
+    status.textContent = data.results.length ? `${data.results.length} courses across all catalog years.${data.truncated ? ' Showing the most relevant matches; refine your search for more.' : ''}` : `No courses found for “${q}” in the catalog.`;
+  } catch (error) { if (requestId === watchSearchRequestId) status.textContent = error.message || 'Course search unavailable.'; }
+  finally { if (requestId === watchSearchRequestId) button.disabled = false; }
 }
 async function checkWatchlist() {
   if (!watchReady || watchSaving || !watchlist.length) return;
@@ -641,16 +645,14 @@ async function openPlannerFor(code) {
 }
 function initWatchlist() {
   localStorage.setItem(WATCH_TERM_KEY, selectedWatchTerm);
-  renderWatchTermOptions(); renderHistoryTermOptions(); renderWatchlist();
+  renderWatchTermOptions(); renderWatchlist();
   document.getElementById('planner-tab').onclick = () => showView('planner');
   document.getElementById('watchlist-tab').onclick = () => showView('watchlist');
   document.getElementById('watch-term').onchange = e => {
     selectedWatchTerm = e.target.value; localStorage.setItem(WATCH_TERM_KEY, selectedWatchTerm); watchErrors.clear(); renderWatchlist();
   };
-  document.getElementById('watch-search-term').onchange = e => { selectedHistoryTerm = e.target.value; };
   document.getElementById('check-watchlist').onclick = checkWatchlist;
-  document.getElementById('watch-search-form').onsubmit = e => { e.preventDefault(); searchHistory(document.getElementById('watch-query').value); };
-  document.getElementById('watch-load-more').onclick = () => searchHistory(watchSearch.query, watchSearch.page + 1);
+  document.getElementById('watch-search-form').onsubmit = e => { e.preventDefault(); searchAcrossYears(document.getElementById('watch-query').value); };
   document.getElementById('watch-manual-form').onsubmit = async e => {
     e.preventDefault(); const form = e.currentTarget, data = new FormData(form);
     if (await addWatchCourse({ code: String(data.get('code')), title: String(data.get('title')) })) form.reset();

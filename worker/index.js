@@ -5,6 +5,8 @@ const TERM_PATTERN = /^(Spring|Summer|Fall) 20\d{2}$/;
 const SEARCH_TTL = 15 * 60 * 1000;
 const CONFIG_TTL = 10 * 60 * 1000;
 const searchCache = new Map();
+const watchSearchCache = new Map();
+const historyCache = new Map();
 let configCache = null;
 let termsCache = null;
 
@@ -115,6 +117,69 @@ async function publishedTerms() {
   termsCache = { value: terms, expires: Date.now() + 60 * 60 * 1000 };
   return terms;
 }
+async function typesenseSearch(config, params) {
+  const url = new URL(`https://${config.typesenseNearestNode}/collections/${encodeURIComponent(config.typesenseSchemaName)}/documents/search`);
+  for (const [key, value] of Object.entries(params)) url.searchParams.set(key, String(value));
+  const response = await fetch(url, { headers: { 'X-TYPESENSE-API-KEY': config.typesenseApiKey, accept: 'application/json' } });
+  if (!response.ok) throw new Error(`Course search unavailable (${response.status})`);
+  return response.json();
+}
+async function courseHistory(code, config) {
+  const cached = historyCache.get(code);
+  if (cached && cached.expires > Date.now()) return cached.value;
+  const today = new Date().toISOString().slice(0, 10);
+  const byTerm = new Map(); let complete = false;
+  for (let page = 1; page <= 4; page++) {
+    const raw = await typesenseSearch(config, { q: '*', query_by: 'Title', filter_by: `OfferingName:=\`${code}\``, sort_by: 'TermStartDate:desc', per_page: 250, page });
+    for (const hit of raw.hits || []) {
+      const doc = hit.document || {}, term = String(doc.Term || doc.Term_JSS?.[0] || ''), date = String(doc.TermStartDate || '').slice(0, 10);
+      if (!/^20\d\d-\d\d-\d\d$/.test(date) || !/^(Spring|Summer|Fall|Intersession|Winter) 20\d{2}$/.test(term)) continue;
+      if (!byTerm.has(term)) byTerm.set(term, { term, date, title: String(doc.Title || '') });
+    }
+    if (Array.from(byTerm.values()).filter(item => item.date <= today).length >= 5 || page * 250 >= Number(raw.found || 0)) { complete = true; break; }
+  }
+  const all = Array.from(byTerm.values()).sort((a, b) => b.date.localeCompare(a.date));
+  const past = all.filter(item => item.date <= today).slice(0, 5);
+  const upcoming = all.filter(item => item.date > today).sort((a, b) => a.date.localeCompare(b.date))[0] || null;
+  const value = { code, title: past[0]?.title || upcoming?.title || '', history: past.map(({ term, date }) => ({ term, date })),
+    upcoming: upcoming ? { term: upcoming.term, date: upcoming.date } : null, historyComplete: complete };
+  historyCache.set(code, { value, expires: Date.now() + 60 * 60 * 1000 });
+  while (historyCache.size > 200) historyCache.delete(historyCache.keys().next().value);
+  return value;
+}
+async function discoverWatchCourses(query) {
+  const q = query.trim(), key = q.toLowerCase();
+  const cached = watchSearchCache.get(key);
+  if (cached && cached.expires > Date.now()) return { ...cached.value, cache: 'server' };
+  const config = await getConfig(), codeQuery = /^[A-Za-z]{2}\.\d{3}\.\d{3}$/.test(q) ? q.toUpperCase() : null;
+  const codes = [];
+  let truncated = false;
+  if (codeQuery) codes.push(codeQuery);
+  else {
+    const seen = new Set();
+    for (let page = 1; page <= 3 && codes.length < 12; page++) {
+      const raw = await typesenseSearch(config, { q, query_by: 'Title,OfferingName,OfferingVariations,InstructorsFullName',
+        sort_by: '_text_match:desc,TermStartDate:desc', per_page: 250, page });
+      for (const hit of raw.hits || []) {
+        const code = String(hit.document?.OfferingName || '').toUpperCase();
+        if (/^[A-Z]{2}\.\d{3}\.\d{3}$/.test(code) && !seen.has(code)) { seen.add(code); codes.push(code); }
+        if (codes.length >= 12) break;
+      }
+      if (codes.length >= 12) { truncated = Number(raw.found || 0) > page * 250 || seen.size >= 12; break; }
+      if (page * 250 >= Number(raw.found || 0)) break;
+      if (page === 3) truncated = true;
+    }
+  }
+  const results = [];
+  for (let start = 0; start < codes.length; start += 4) {
+    const batch = await Promise.all(codes.slice(start, start + 4).map(code => courseHistory(code, config)));
+    results.push(...batch.filter(item => item.title));
+  }
+  const value = { query: q, results, truncated, fetchedAt: new Date().toISOString(), cache: 'live' };
+  watchSearchCache.set(key, { value, expires: Date.now() + SEARCH_TTL });
+  while (watchSearchCache.size > 50) watchSearchCache.delete(watchSearchCache.keys().next().value);
+  return value;
+}
 export default {
   async fetch(request) {
     const url = new URL(request.url);
@@ -125,6 +190,12 @@ export default {
     if (url.pathname === '/api/terms') {
       try { return json({ terms: await publishedTerms() }); }
       catch { return json({ error: 'Could not check published JHU semesters.' }, 502); }
+    }
+    if (url.pathname === '/api/watch-search') {
+      const q = (url.searchParams.get('q') || '').trim();
+      if (q.length < 2 || q.length > 80) return json({ error: 'Enter a course title or code with 2–80 characters.' }, 400);
+      try { return json(await discoverWatchCourses(q)); }
+      catch { return json({ error: 'JHU course search is temporarily unavailable.' }, 502); }
     }
     if (url.pathname === '/api/search') {
       const q = (url.searchParams.get('q') || '').trim();
