@@ -10,3 +10,4 @@ public/
 dist/server/
 .vercel/
 .openai/
+client_secret_*.json
