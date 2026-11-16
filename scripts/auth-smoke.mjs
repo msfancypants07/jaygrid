@@ -63,6 +63,12 @@ try {
   assert.equal(loaded.schedules[1].name, 'Option 2');
   const fall = await (await fetch(`${appOrigin}/api/plan?term=Fall%202026`, { headers })).json();
   assert.equal(fall.version, 0);
+  const emptyWatchlist = await (await fetch(`${appOrigin}/api/watchlist`, { headers })).json();
+  assert.deepEqual(emptyWatchlist, { items: [], version: 0 });
+  const watched = [{ code: 'EN.601.415', title: 'Databases', notes: 'Take later', addedAt: new Date().toISOString(), seenTerms: ['Fall 2026'], checks: {} }];
+  const watchSave = await fetch(`${appOrigin}/api/watchlist`, { method: 'PUT', headers: { ...headers, origin: appOrigin, 'content-type': 'application/json' }, body: JSON.stringify({ items: watched, version: 0 }) });
+  assert.equal(watchSave.status, 200);
+  assert.equal((await (await fetch(`${appOrigin}/api/watchlist`, { headers })).json()).items[0].notes, 'Take later');
   const updated = await fetch(`${appOrigin}/api/plan`, { method: 'PUT', headers: { ...headers, origin: appOrigin, 'content-type': 'application/json' }, body: JSON.stringify({ schedules: [{ ...schedules[0], entries: [] }, schedules[1]], version: 1 }) });
   assert.equal(updated.status, 200);
   assert.equal((await updated.json()).version, 2);

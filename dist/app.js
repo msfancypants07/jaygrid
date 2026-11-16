@@ -3,6 +3,8 @@ const PLANS_KEY = 'jaygrid-schedules-v1';
 const TERM_KEY = 'jaygrid-selected-term';
 const SCHEDULE_KEY = 'jaygrid-selected-schedules';
 const CACHE_KEY = 'springboard-search-cache-v2';
+const WATCHLIST_KEY = 'jaygrid-watchlist-v1';
+const WATCH_TERM_KEY = 'jaygrid-watch-check-term';
 const CACHE_TTL = 30 * 60 * 1000;
 const dayNames = { M: 'Mon', Tu: 'Tue', W: 'Wed', Th: 'Thu', F: 'Fri' };
 const dayOrder = Object.keys(dayNames);
@@ -22,6 +24,20 @@ let cloudVersion = 0;
 let savingPlan = false;
 let loadingTerm = false;
 const importedLocalKeys = new Set();
+let guestWatchlist = loadGuestWatchlist();
+let watchlist = guestWatchlist;
+let watchVersion = 0;
+let watchReady = true;
+let watchSaving = false;
+let watchChecking = false;
+let watchLoadError = '';
+let publishedTerms = null;
+let publishedTermsError = false;
+let selectedWatchTerm = terms.includes(localStorage.getItem(WATCH_TERM_KEY)) ? localStorage.getItem(WATCH_TERM_KEY) : selectedTerm;
+let selectedHistoryTerm = '';
+const watchSearch = { query: '', term: '', page: 0, found: 0, results: [] };
+const watchErrors = new Set();
+const noteDrafts = new Map();
 
 function validMeeting(m) {
   return m && Array.isArray(m.days) && m.days.length > 0 && m.days.every(d => dayOrder.includes(d)) &&
@@ -97,7 +113,7 @@ async function savePlan(nextEntries) { return commitSchedules(schedules.map(s =>
 function loadCache() { try { const value = JSON.parse(localStorage.getItem(CACHE_KEY) || '[]'); return Array.isArray(value) ? value.filter(x => x && x.when + CACHE_TTL > Date.now() && Array.isArray(x.data?.results) && x.data.query?.trim().toLowerCase() === x.query?.trim().toLowerCase() && x.data.page === x.page && terms.includes(x.data.term)).slice(0, 20) : []; } catch { return []; } }
 function cacheKey(q, page, term = selectedTerm) { return `${term}|${q.trim().toLowerCase()}|${page}`; }
 function cacheResult(q, page, data) {
-  const key = cacheKey(q, page); recent = recent.filter(x => x.key !== key);
+  const key = cacheKey(q, page, data.term); recent = recent.filter(x => x.key !== key);
   recent.unshift({ key, query: q.trim(), page, when: Date.now(), data }); recent = recent.slice(0, 20);
   localStorage.setItem(CACHE_KEY, JSON.stringify(recent)); renderRecent();
 }
@@ -342,6 +358,7 @@ authButton.onclick = async () => {
   account = null; cloudVersion = 0;
   selectedScheduleId = selectedScheduleIds[selectedTerm] || 'default';
   setSchedules(guestPlans[selectedTerm] || defaultSchedules());
+  guestWatchlist = loadGuestWatchlist(); watchlist = guestWatchlist; watchVersion = 0; watchReady = true; watchLoadError = ''; noteDrafts.clear(); renderWatchlist(); renderHistoryResults(); watchStatus('Saved on this device.');
   authButton.textContent = 'Sign in with Google';
   document.getElementById('storage-indicator').lastChild.textContent = ' Saved on this device';
   importLocalButton.hidden = true;
@@ -382,6 +399,7 @@ async function initAccount() {
     const restored = normalizeSchedules(plan.schedules);
     if (!restored) throw new Error('Your cloud schedules contain invalid data.');
     account = state.user; cloudVersion = plan.version; setSchedules(restored);
+    await loadCloudWatchlist();
     authButton.textContent = 'Sign out';
     authButton.title = state.user.email || 'Sign out';
     document.getElementById('storage-indicator').lastChild.textContent = ' Synced to your account';
@@ -390,4 +408,262 @@ async function initAccount() {
   } catch (error) { authStatus.textContent = error.message || 'Could not load your account.'; }
   finally { loadingTerm = false; termSelect.disabled = false; renderScheduleControls(); }
 }
-setManualDates(); renderRecent(); render(); initAccount();
+setManualDates(); renderRecent(); render(); initWatchlist(); initAccount();
+
+function normalizeWatchItem(item) {
+  if (!item || typeof item.code !== 'string' || typeof item.title !== 'string') return null;
+  const code = item.code.trim().toUpperCase();
+  if (!/^[A-Z]{2}\.\d{3}\.\d{3}$/.test(code) || !item.title.trim()) return null;
+  const checks = {};
+  if (item.checks && typeof item.checks === 'object' && !Array.isArray(item.checks)) {
+    for (const [term, check] of Object.entries(item.checks).slice(-12)) {
+      if (terms.includes(term) && Number.isSafeInteger(check?.found) && check.found >= 0 && !Number.isNaN(Date.parse(check.checkedAt)))
+        checks[term] = { found: check.found, checkedAt: check.checkedAt };
+    }
+  }
+  return { code, title: item.title.trim().slice(0, 300), notes: String(item.notes || '').slice(0, 2000),
+    addedAt: !Number.isNaN(Date.parse(item.addedAt)) ? item.addedAt : new Date().toISOString(),
+    seenTerms: [...new Set((Array.isArray(item.seenTerms) ? item.seenTerms : []).filter(term => terms.includes(term)))].slice(-20), checks };
+}
+function loadGuestWatchlist() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(WATCHLIST_KEY) || '[]');
+    if (!Array.isArray(saved)) return [];
+    const items = saved.map(normalizeWatchItem).filter(Boolean), seen = new Set();
+    return items.filter(item => !seen.has(item.code) && seen.add(item.code)).slice(0, 100);
+  } catch { return []; }
+}
+function watchStatus(message) { document.getElementById('watch-status').textContent = message; }
+function showView(view) {
+  const watching = view === 'watchlist';
+  document.getElementById('planner-view').hidden = watching;
+  document.getElementById('watchlist-view').hidden = !watching;
+  document.getElementById('planner-term-control').hidden = watching;
+  for (const [id, active] of [['planner-tab', !watching], ['watchlist-tab', watching]]) {
+    const button = document.getElementById(id); button.classList.toggle('active', active);
+    if (active) button.setAttribute('aria-current', 'page'); else button.removeAttribute('aria-current');
+  }
+  if (watching) loadPublishedTerms();
+}
+function renderWatchTermOptions() {
+  const select = document.getElementById('watch-term'); select.replaceChildren();
+  for (const term of terms) { const option = document.createElement('option'); option.value = term; option.textContent = term; select.append(option); }
+  select.value = selectedWatchTerm;
+}
+function renderHistoryTermOptions() {
+  const select = document.getElementById('watch-search-term'); select.replaceChildren();
+  if (!publishedTerms?.length) {
+    const option = document.createElement('option'); option.textContent = publishedTermsError ? 'Terms unavailable' : 'Loading terms…'; option.value = ''; select.append(option);
+    select.disabled = true; document.querySelector('#watch-search-form button').disabled = true; return;
+  }
+  if (!publishedTerms.includes(selectedHistoryTerm)) {
+    const position = publishedTerms.indexOf(selectedWatchTerm);
+    selectedHistoryTerm = publishedTerms[Math.max(0, position + 1)] || publishedTerms[0];
+  }
+  for (const term of publishedTerms) { const option = document.createElement('option'); option.value = term; option.textContent = term; select.append(option); }
+  select.value = selectedHistoryTerm; select.disabled = false; document.querySelector('#watch-search-form button').disabled = false;
+}
+async function loadPublishedTerms() {
+  if (publishedTerms) return publishedTerms;
+  try {
+    const response = await fetch('/api/terms'); const data = await response.json();
+    if (!response.ok || !Array.isArray(data.terms)) throw new Error(data.error || 'Could not check catalog terms.');
+    publishedTerms = data.terms.filter(term => terms.includes(term)); publishedTermsError = false;
+    renderHistoryTermOptions(); renderWatchlist(); return publishedTerms;
+  } catch (error) {
+    publishedTermsError = true; renderHistoryTermOptions(); watchStatus(error.message || 'Could not check catalog terms.'); return null;
+  }
+}
+function watchCheckLabel(item) {
+  if (watchErrors.has(item.code)) return ['Check failed', 'error'];
+  if (publishedTerms && !publishedTerms.includes(selectedWatchTerm)) return ['Term not published', 'missing'];
+  const check = item.checks[selectedWatchTerm];
+  if (!check) return ['Not checked', ''];
+  return check.found ? [`Listed · ${check.found} section${check.found === 1 ? '' : 's'}`, ''] : ['No listing found', 'missing'];
+}
+function renderWatchlist() {
+  document.getElementById('watch-count').textContent = watchlist.length;
+  const list = document.getElementById('watch-items'); list.replaceChildren();
+  const importButton = document.getElementById('import-device-watchlist');
+  importButton.hidden = !account || !watchReady || !guestWatchlist.some(local => {
+    const remote = watchlist.find(item => item.code === local.code);
+    return !remote || (!remote.notes && local.notes);
+  });
+  importButton.disabled = watchSaving || watchChecking;
+  document.getElementById('check-watchlist').disabled = !watchReady || watchSaving || watchChecking || !watchlist.length;
+  document.querySelector('#watch-manual-form button').disabled = !watchReady || watchSaving || watchChecking;
+  if (!watchReady) { const empty = document.createElement('div'); empty.className = 'watch-empty'; text(empty, watchLoadError || 'Loading your watchlist…'); list.append(empty); return; }
+  if (!watchlist.length) { const empty = document.createElement('div'); empty.className = 'watch-empty'; text(empty, 'No courses watched yet. Find a past course below, or add one by code.'); list.append(empty); return; }
+  for (const item of watchlist) {
+    const row = document.createElement('article'); row.className = 'watch-row';
+    const main = document.createElement('div'); main.className = 'watch-row-main';
+    const info = document.createElement('div'), code = document.createElement('div'), title = document.createElement('div'), meta = document.createElement('div');
+    code.className = 'watch-row-code'; title.className = 'watch-row-title'; meta.className = 'watch-row-meta';
+    text(code, item.code); text(title, item.title);
+    const seen = item.seenTerms.slice(-3).join(', ');
+    const checked = item.checks[selectedWatchTerm]?.checkedAt;
+    text(meta, `${seen ? `Seen in ${seen}` : 'No past listing recorded'}${checked ? ` · Checked ${new Date(checked).toLocaleDateString()}` : ''}`);
+    info.append(code, title, meta);
+    const status = document.createElement('div'); status.className = 'watch-row-status';
+    const [label, statusClass] = watchCheckLabel(item); text(status, label); if (statusClass) status.classList.add(statusClass);
+    main.append(info, status); row.append(main);
+    const actions = document.createElement('div'); actions.className = 'watch-row-actions';
+    if (item.checks[selectedWatchTerm]?.found > 0 && publishedTerms?.includes(selectedWatchTerm)) {
+      const add = document.createElement('button'); add.type = 'button'; text(add, 'Find sections for planner');
+      add.onclick = () => openPlannerFor(item.code); actions.append(add);
+    }
+    const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'remove-watch'; text(remove, 'Remove');
+    remove.disabled = watchSaving || watchChecking; remove.onclick = async () => {
+      if (confirm(`Remove ${item.code} from your watchlist?`)) await commitWatchlist(watchlist.filter(saved => saved.code !== item.code));
+    }; actions.append(remove); row.append(actions);
+    const note = document.createElement('details'); note.className = 'watch-note';
+    const summary = document.createElement('summary'); text(summary, item.notes ? `Notes · ${item.notes.replace(/\s+/g, ' ').slice(0, 95)}${item.notes.length > 95 ? '…' : ''}` : 'Notes · Add a note'); note.append(summary);
+    const textarea = document.createElement('textarea'); textarea.value = noteDrafts.get(item.code) ?? item.notes; textarea.maxLength = 2000; textarea.placeholder = 'Why do you want to take this course? Anything to remember?'; textarea.setAttribute('aria-label', `Notes for ${item.code}`);
+    textarea.oninput = () => noteDrafts.set(item.code, textarea.value);
+    const save = document.createElement('button'); save.type = 'button'; text(save, 'Save note');
+    save.disabled = watchSaving || watchChecking;
+    const noteStatus = document.createElement('span'); noteStatus.className = 'watch-note-status'; noteStatus.setAttribute('role', 'status');
+    save.onclick = async () => {
+      save.disabled = true;
+      const next = watchlist.map(saved => saved.code === item.code ? { ...saved, notes: textarea.value } : saved);
+      if (await commitWatchlist(next)) { noteDrafts.delete(item.code); watchStatus(`Saved note for ${item.code}.`); }
+      else { noteStatus.textContent = 'Could not save note.'; save.disabled = false; }
+    };
+    note.append(textarea, save, noteStatus); row.append(note); list.append(row);
+  }
+}
+async function commitWatchlist(next, fromStatusCheck = false) {
+  if (!watchReady || watchSaving || (watchChecking && !fromStatusCheck) || next.length > 100) return false;
+  if (!account) {
+    watchlist = next; guestWatchlist = next;
+    localStorage.setItem(WATCHLIST_KEY, JSON.stringify(next)); renderWatchlist(); renderHistoryResults(); watchStatus('Saved on this device.'); return true;
+  }
+  watchSaving = true; watchStatus('Saving to your account…');
+  let saved = false;
+  try {
+    const response = await fetch('/api/watchlist', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ items: next, version: watchVersion }) });
+    const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Could not save your watchlist.');
+    watchVersion = data.version; watchlist = next; saved = true; watchStatus('Saved to your account.'); return true;
+  } catch (error) { watchStatus(error.message || 'Could not save your watchlist.'); return false; }
+  finally { watchSaving = false; if (saved) { renderWatchlist(); renderHistoryResults(); } }
+}
+async function loadCloudWatchlist() {
+  watchReady = false; watchLoadError = ''; watchlist = []; noteDrafts.clear(); renderWatchlist();
+  try {
+    const response = await fetch('/api/watchlist'); const data = await response.json();
+    if (!response.ok || !Array.isArray(data.items)) throw new Error(data.error || 'Could not load your watchlist.');
+    const items = data.items.map(normalizeWatchItem);
+    if (items.some(item => !item)) throw new Error('Your saved watchlist contains invalid data.');
+    watchlist = items; watchVersion = data.version; watchReady = true; renderWatchlist(); renderHistoryResults(); watchStatus('Synced to your account.');
+  } catch (error) { watchLoadError = error.message || 'Could not load your watchlist. Reload to retry.'; watchStatus(watchLoadError); renderWatchlist(); }
+}
+async function addWatchCourse(course, seenTerm = '') {
+  const item = normalizeWatchItem({ code: course.code, title: course.title, notes: '', addedAt: new Date().toISOString(), seenTerms: seenTerm ? [seenTerm] : [], checks: {} });
+  if (!item) { watchStatus('Use a course code like EN.601.415.'); return false; }
+  if (watchlist.some(saved => saved.code === item.code)) { watchStatus(`${item.code} is already on your watchlist.`); return false; }
+  if (watchlist.length >= 100) { watchStatus('The watchlist can hold up to 100 courses.'); return false; }
+  return commitWatchlist([...watchlist, item]);
+}
+function renderHistoryResults() {
+  const list = document.getElementById('watch-search-results'); list.replaceChildren();
+  const unique = new Map(); for (const course of watchSearch.results) if (!unique.has(course.code)) unique.set(course.code, course);
+  for (const course of unique.values()) {
+    const row = document.createElement('div'); row.className = 'watch-search-result';
+    const info = document.createElement('div'), name = document.createElement('strong'), meta = document.createElement('span');
+    text(name, course.title); text(meta, `${course.code} · Seen in ${watchSearch.term}`); info.append(name, meta);
+    const add = document.createElement('button'); add.type = 'button';
+    const watched = watchlist.some(item => item.code === course.code);
+    text(add, watched ? 'Watching' : '+ Watch'); add.disabled = watched || !watchReady || watchSaving || watchChecking;
+    add.onclick = () => addWatchCourse(course, watchSearch.term); row.append(info, add); list.append(row);
+  }
+  document.getElementById('watch-load-more').hidden = !watchSearch.query || watchSearch.results.length >= watchSearch.found || watchSearch.page >= 20;
+}
+async function searchHistory(query, page = 1) {
+  const q = query.trim(), term = selectedHistoryTerm;
+  if (q.length < 2 || !publishedTerms?.includes(term)) return;
+  const status = document.getElementById('watch-search-status');
+  status.textContent = 'Searching JHU course listings…';
+  if (page === 1) { watchSearch.query = q; watchSearch.term = term; watchSearch.page = 0; watchSearch.found = 0; watchSearch.results = []; renderHistoryResults(); }
+  try {
+    let data; const cached = recent.find(x => x.key === cacheKey(q, page, term) && x.when + CACHE_TTL > Date.now() && x.data.term === term && x.data.query?.trim().toLowerCase() === q.toLowerCase());
+    if (cached) data = cached.data;
+    else {
+      const response = await fetch(`/api/search?q=${encodeURIComponent(q)}&term=${encodeURIComponent(term)}&page=${page}`); data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Course search unavailable.');
+      if (data.term !== term || data.query?.trim().toLowerCase() !== q.toLowerCase() || data.page !== page || !Array.isArray(data.results)) throw new Error('Search returned mismatched results.');
+      cacheResult(q, page, data);
+    }
+    if (watchSearch.query !== q || watchSearch.term !== term) return;
+    watchSearch.page = page; watchSearch.found = data.found;
+    watchSearch.results = page === 1 ? data.results : [...watchSearch.results, ...data.results];
+    renderHistoryResults();
+    status.textContent = data.found ? `${new Set(watchSearch.results.map(course => course.code)).size} courses from ${watchSearch.results.length} of ${data.found} sections in ${term}.` : `No courses found for “${q}” in ${term}.`;
+  } catch (error) { status.textContent = error.message || 'Course search unavailable.'; }
+}
+async function checkWatchlist() {
+  if (!watchReady || watchSaving || !watchlist.length) return;
+  if (!publishedTerms && !await loadPublishedTerms()) return;
+  if (!publishedTerms.includes(selectedWatchTerm)) { watchStatus(`${selectedWatchTerm} is not published in JHU course search yet.`); renderWatchlist(); return; }
+  const button = document.getElementById('check-watchlist'), term = selectedWatchTerm;
+  watchChecking = true; watchErrors.clear(); renderWatchlist(); renderHistoryResults();
+  button.disabled = true; document.getElementById('watch-term').disabled = true;
+  const next = [...watchlist]; let index = 0, completed = 0, successful = 0;
+  watchStatus(`Checking 0 of ${next.length} courses…`);
+  async function worker() {
+    while (index < next.length) {
+      const i = index++, item = next[i];
+      try {
+        const response = await fetch(`/api/search?q=${encodeURIComponent(item.code)}&term=${encodeURIComponent(term)}&page=1&refresh=1`);
+        const data = await response.json();
+        if (!response.ok || data.term !== term || data.query?.toUpperCase() !== item.code || !Number.isSafeInteger(data.found)) throw new Error();
+        const checks = { ...item.checks, [term]: { found: data.found, checkedAt: new Date().toISOString() } };
+        while (Object.keys(checks).length > 12) delete checks[Object.keys(checks)[0]];
+        const seenTerms = data.found ? [...new Set([...item.seenTerms, term])].slice(-20) : item.seenTerms;
+        next[i] = { ...item, checks, seenTerms }; successful++;
+      } catch { watchErrors.add(item.code); }
+      completed++; watchStatus(`Checked ${completed} of ${next.length} courses…`);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(4, next.length) }, worker));
+  const saved = successful ? await commitWatchlist(next, true) : true;
+  watchStatus(saved ? `${successful} checked${watchErrors.size ? ` · ${watchErrors.size} failed` : ''}. ${term} listings can change; refresh again later.` : 'Statuses were checked but could not be saved. Try again.');
+  watchChecking = false;
+  document.getElementById('watch-term').disabled = false;
+  renderWatchlist(); button.disabled = !watchReady || watchSaving || !watchlist.length;
+}
+async function openPlannerFor(code) {
+  showView('planner');
+  await selectTerm(selectedWatchTerm);
+  if (selectedTerm !== selectedWatchTerm) return;
+  document.getElementById('catalog-query').value = code;
+  await doSearch(code);
+  document.getElementById('official-search').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+function initWatchlist() {
+  localStorage.setItem(WATCH_TERM_KEY, selectedWatchTerm);
+  renderWatchTermOptions(); renderHistoryTermOptions(); renderWatchlist();
+  document.getElementById('planner-tab').onclick = () => showView('planner');
+  document.getElementById('watchlist-tab').onclick = () => showView('watchlist');
+  document.getElementById('watch-term').onchange = e => {
+    selectedWatchTerm = e.target.value; localStorage.setItem(WATCH_TERM_KEY, selectedWatchTerm); watchErrors.clear(); renderWatchlist();
+  };
+  document.getElementById('watch-search-term').onchange = e => { selectedHistoryTerm = e.target.value; };
+  document.getElementById('check-watchlist').onclick = checkWatchlist;
+  document.getElementById('watch-search-form').onsubmit = e => { e.preventDefault(); searchHistory(document.getElementById('watch-query').value); };
+  document.getElementById('watch-load-more').onclick = () => searchHistory(watchSearch.query, watchSearch.page + 1);
+  document.getElementById('watch-manual-form').onsubmit = async e => {
+    e.preventDefault(); const form = e.currentTarget, data = new FormData(form);
+    if (await addWatchCourse({ code: String(data.get('code')), title: String(data.get('title')) })) form.reset();
+  };
+  document.getElementById('import-device-watchlist').onclick = async () => {
+    const next = [...watchlist];
+    for (const local of guestWatchlist) {
+      const index = next.findIndex(item => item.code === local.code);
+      if (index < 0) next.push(local);
+      else if (!next[index].notes && local.notes) next[index] = { ...next[index], notes: local.notes,
+        seenTerms: [...new Set([...next[index].seenTerms, ...local.seenTerms])].slice(-20) };
+    }
+    if (next.length > 100) { watchStatus('Import would exceed the 100-course watchlist limit.'); return; }
+    if (await commitWatchlist(next)) watchStatus('Imported courses from this device.');
+  };
+}

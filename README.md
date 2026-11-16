@@ -1,12 +1,12 @@
 # JayGrid
 
-An unofficial Johns Hopkins course planner. Choose a semester, keep multiple named schedules for it, search JHU's public course listings, spot time conflicts, and export a calendar or JSON backup.
+An unofficial Johns Hopkins course planner. Choose a semester, keep multiple named schedules for it, search JHU's public course listings, spot time conflicts, and export a calendar or JSON backup. The global watchlist saves courses from past terms with per-course notes and lets you check whether they are listed again.
 
 Live site: [jaygrid.vercel.app](https://jaygrid.vercel.app/)
 
 ## Current data behavior
 
-The live site is public. Guests' schedules stay in their browser. Google sign-in saves each semester's schedules to the user's Supabase account. Existing Spring 2027 plans are loaded as **Schedule 1**. Registration still happens in SIS.
+The live site is public. Guests' schedules and watchlist stay in their browser. Google sign-in saves both to the user's Supabase account. Existing Spring 2027 plans are loaded as **Schedule 1**. A watchlist status of “No listing found” only describes the selected term at the recorded check time; it does not predict whether a course will be offered later. Registration still happens in SIS.
 
 ## Run locally
 
@@ -22,7 +22,7 @@ Open `http://127.0.0.1:4177/`. The local server uses `local/data/sessions.sqlite
 
 ## Connect Supabase
 
-The live Supabase and Vercel projects are configured. For a new installation, follow [local/SETUP.md](local/SETUP.md) and run [supabase/jaygrid.sql](supabase/jaygrid.sql) in the Supabase SQL Editor. The existing table supports named schedules without a schema change. Never commit a service-role key or Google client secret.
+The live Supabase and Vercel projects are configured. For a new installation, follow [local/SETUP.md](local/SETUP.md) and run [supabase/jaygrid.sql](supabase/jaygrid.sql) in the Supabase SQL Editor. The existing table supports named schedules and the watchlist without a schema change. Never commit a service-role key or Google client secret.
 
 ## Deployments
 

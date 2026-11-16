@@ -10,15 +10,16 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
-  <script defer src="app.js?v=5"></script>
+  <script defer src="app.js?v=6"></script>
 </head>
 <body>
   <header class="topbar">
     <div class="brand"><span class="brand-mark" aria-hidden="true">✦</span><span>jaygrid<span class="brand-dot">.</span></span></div>
-    <div class="top-actions"><label class="top-select-label" for="term-select">Semester <select id="term-select" class="top-select" aria-label="Semester"></select></label><span id="storage-indicator" class="private-pill"><span class="private-dot"></span> Saved on this device</span><button id="auth-button" class="auth-button" type="button" hidden>Sign in with Google</button></div>
+    <nav class="main-nav" aria-label="Main"><button id="planner-tab" class="active" type="button" aria-current="page">Planner</button><button id="watchlist-tab" type="button">Watchlist <span id="watch-count">0</span></button></nav>
+    <div class="top-actions"><label id="planner-term-control" class="top-select-label" for="term-select">Semester <select id="term-select" class="top-select" aria-label="Semester"></select></label><span id="storage-indicator" class="private-pill"><span class="private-dot"></span> Saved on this device</span><button id="auth-button" class="auth-button" type="button" hidden>Sign in with Google</button></div>
   </header>
   <main class="shell">
-    <section class="workspace" aria-label="Course planner">
+    <section id="planner-view" class="workspace" aria-label="Course planner">
       <aside class="left-panel">
         <div class="panel-heading"><h2>Find a course</h2></div>
         <form id="official-search" class="official-search"><label id="search-label" for="catalog-query">Spring 2027 courses</label><div class="search-row"><input id="catalog-query" placeholder="Course, code, or instructor" autocomplete="off"><button class="search-button" type="submit" aria-label="Search JHU courses">⌕</button></div><small>Live results from JHU’s public course search</small></form>
@@ -44,6 +45,12 @@
         <p class="calendar-note">Eastern Time · Check SIS for date exceptions.</p>
       </section>
       <aside class="right-panel"><div class="panel-heading"><h2>Schedules</h2><div class="schedule-controls"><select id="schedule-select" aria-label="Schedule version"></select><button id="new-schedule" type="button" title="Create an empty schedule">＋ New</button><button id="copy-schedule" type="button" title="Copy this schedule">Duplicate</button><button id="rename-schedule" type="button" title="Rename this schedule">Rename</button><button id="delete-schedule" type="button" title="Delete this schedule">Delete</button></div><p id="summary">No sections added yet.</p></div><div id="course-list" class="course-list"></div><div class="plan-actions"><button id="import-local-plan" type="button" hidden>↑ Add schedule from this device</button><button id="download-ics" type="button" disabled>↓ Export calendar</button><button id="download-json" type="button" disabled>↓ Back up schedule</button><label class="import-label" for="import-json">↑ Restore a schedule<input id="import-json" type="file" accept="application/json,.json" hidden></label></div><p id="auth-status" class="privacy-note" role="status" aria-live="polite">Saved on this device. Planning only; registration happens in SIS.</p></aside>
+    </section>
+    <section id="watchlist-view" class="watchlist-view" aria-label="Course watchlist" hidden>
+      <div class="watch-heading"><div><h1>Watchlist</h1><p>Save courses across semesters and check when they appear again.</p></div><button id="import-device-watchlist" type="button" hidden>Import from this device</button></div>
+      <div class="watch-toolbar"><label for="watch-term">Check listings for <select id="watch-term" aria-label="Semester to check"></select></label><button id="check-watchlist" type="button">Refresh statuses</button><span id="watch-status" role="status" aria-live="polite"></span></div>
+      <div id="watch-items" class="watch-items"></div>
+      <div class="watch-discovery"><h2>Find a course to watch</h2><form id="watch-search-form"><input id="watch-query" placeholder="Course title or code" aria-label="Search course listings" autocomplete="off" required minlength="2"><select id="watch-search-term" aria-label="Search semester"></select><button type="submit">Search courses</button></form><p id="watch-search-status" role="status" aria-live="polite"></p><div id="watch-search-results" class="watch-search-results"></div><button id="watch-load-more" type="button" hidden>Load more</button><details class="watch-manual"><summary>Add a course by code</summary><form id="watch-manual-form"><input name="code" placeholder="EN.601.415" aria-label="Course code" required><input name="title" placeholder="Course title" aria-label="Course title" required><button type="submit">Add to watchlist</button></form></details></div>
     </section>
     <footer><a id="footer-link" href="https://courses.jhu.edu/?terms=Spring+2027" target="_blank" rel="noopener noreferrer">JHU course search ↗</a></footer>
   </main>

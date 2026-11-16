@@ -3,6 +3,7 @@ import { deflateRawSync, inflateRawSync } from 'node:zlib';
 import { createClient } from '@supabase/supabase-js';
 import site from '../dist/server/index.js';
 import { DEFAULT_TERM, normalizedSchedules, validSchedules, validTerm } from '../shared/plans.mjs';
+import { WATCHLIST_ROW, validWatchlist } from '../shared/watchlist.mjs';
 
 const SESSION_AGE = 30 * 24 * 60 * 60;
 
@@ -71,7 +72,7 @@ async function account(request, config) {
 }
 export async function handle(request, route = new URL(request.url).pathname) {
   const config = settings();
-  if (route === '/api/search') return site.fetch(request);
+  if (route === '/api/search' || route === '/api/terms') return site.fetch(request);
   if (route === '/api/account' && request.method === 'GET') {
     if (!config.configured) return respond({ configured: false, user: null });
     const current = await account(request, config);
@@ -106,6 +107,35 @@ export async function handle(request, route = new URL(request.url).pathname) {
     const current = await account(request, config);
     if (current) await current.client.auth.signOut({ scope: 'local' });
     return respond({ ok: true }, 200, [setCookie('jaygrid_session', '', 0, config.origin)]);
+  }
+  if (route === '/api/watchlist' && (request.method === 'GET' || request.method === 'PUT')) {
+    if (!config.configured) return respond({ error: 'Connect Supabase to save your watchlist.' }, 503);
+    if (request.method === 'PUT' && request.headers.get('origin') !== config.origin) return respond({ error: 'Invalid request origin.' }, 403);
+    const current = await account(request, config);
+    if (!current) return respond({ error: 'Sign in to save your watchlist.' }, 401);
+    const query = current.client.from('jaygrid_plans');
+    if (request.method === 'GET') {
+      const { data, error } = await query.select('entries,version').eq('user_id', current.user.id).eq('term', WATCHLIST_ROW).maybeSingle();
+      if (error || (data && !validWatchlist(data.entries))) return respond({ error: 'Could not load your watchlist.' }, 502, [current.currentCookie()]);
+      return respond({ items: data?.entries || [], version: Number(data?.version) || 0 }, 200, [current.currentCookie()]);
+    }
+    let body;
+    try { const raw = await request.text(); if (raw.length > 512_000) throw Error(); body = JSON.parse(raw); }
+    catch { return respond({ error: 'Invalid watchlist data.' }, 400); }
+    if (!body || !validWatchlist(body.items) || !Number.isSafeInteger(body.version) || body.version < 0)
+      return respond({ error: 'Invalid watchlist data.' }, 400);
+    const update = { entries: body.items, version: body.version + 1, updated_at: new Date().toISOString() };
+    let result;
+    if (body.version === 0) {
+      result = await query.insert({ user_id: current.user.id, term: WATCHLIST_ROW, ...update }).select('version').maybeSingle();
+      if (result.error?.code === '23505') return respond({ error: 'Your watchlist changed on another device. Reload before saving.' }, 409, [current.currentCookie()]);
+    } else {
+      result = await query.update(update).eq('user_id', current.user.id).eq('term', WATCHLIST_ROW)
+        .eq('version', body.version).select('version').maybeSingle();
+    }
+    if (result.error) return respond({ error: 'Could not save your watchlist.' }, 502, [current.currentCookie()]);
+    if (!result.data) return respond({ error: 'Your watchlist changed on another device. Reload before saving.' }, 409, [current.currentCookie()]);
+    return respond({ version: Number(result.data.version) }, 200, [current.currentCookie()]);
   }
   if (route === '/api/plan' && (request.method === 'GET' || request.method === 'PUT')) {
     if (!config.configured) return respond({ error: 'Connect Supabase to save plans.' }, 503);

@@ -6,6 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { createClient } from '@supabase/supabase-js';
 import site from './site.mjs';
 import { DEFAULT_TERM, normalizedSchedules, validSchedules, validTerm } from '../shared/plans.mjs';
+import { WATCHLIST_ROW, validWatchlist } from '../shared/watchlist.mjs';
 
 const envPath = join(import.meta.dirname, '.env');
 if (existsSync(envPath)) process.loadEnvFile(envPath);
@@ -131,6 +132,35 @@ async function handle(req, res) {
       db.prepare('delete from sessions where id_hash = ?').run(sha(current.id));
     }
     return json(res, 200, { ok: true }, { 'set-cookie': setCookie('jaygrid_session', '', 0) });
+  }
+  if (url.pathname === '/api/watchlist' && (req.method === 'GET' || req.method === 'PUT')) {
+    if (req.method === 'PUT' && !sameOrigin(req)) return json(res, 403, { error: 'Invalid request origin.' });
+    const current = await account(req);
+    if (!current) return json(res, 401, { error: 'Sign in to save your watchlist.' });
+    const query = current.client.from('jaygrid_plans');
+    if (req.method === 'GET') {
+      const { data, error } = await query.select('entries,version').eq('user_id', current.user.id).eq('term', WATCHLIST_ROW).maybeSingle();
+      current.save();
+      if (error || (data && !validWatchlist(data.entries))) return json(res, 502, { error: 'Could not load your watchlist.' });
+      return json(res, 200, { items: data?.entries || [], version: Number(data?.version) || 0 });
+    }
+    let body;
+    try { body = await readBody(req); } catch { return json(res, 400, { error: 'Invalid watchlist data.' }); }
+    if (!body || !validWatchlist(body.items) || !Number.isSafeInteger(body.version) || body.version < 0)
+      return json(res, 400, { error: 'Invalid watchlist data.' });
+    const update = { entries: body.items, version: body.version + 1, updated_at: new Date().toISOString() };
+    let result;
+    if (body.version === 0) {
+      result = await query.insert({ user_id: current.user.id, term: WATCHLIST_ROW, ...update }).select('version').maybeSingle();
+      if (result.error?.code === '23505') return json(res, 409, { error: 'Your watchlist changed on another device. Reload before saving.' });
+    } else {
+      result = await query.update(update).eq('user_id', current.user.id).eq('term', WATCHLIST_ROW)
+        .eq('version', body.version).select('version').maybeSingle();
+    }
+    current.save();
+    if (result.error) return json(res, 502, { error: 'Could not save your watchlist.' });
+    if (!result.data) return json(res, 409, { error: 'Your watchlist changed on another device. Reload before saving.' });
+    return json(res, 200, { version: Number(result.data.version) });
   }
   if (url.pathname === '/api/plan' && (req.method === 'GET' || req.method === 'PUT')) {
     if (req.method === 'PUT' && !sameOrigin(req)) return json(res, 403, { error: 'Invalid request origin.' });

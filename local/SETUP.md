@@ -13,7 +13,7 @@ The Vercel site is live at `https://jaygrid.vercel.app/`. Guests' schedules stay
 5. Copy `local/.env.example` to `local/.env`. Fill in your Supabase Project URL and **publishable** key from Supabase's API settings. Do not put a service-role key or Google client secret in `.env`.
 6. Open `local/start.command`, then visit `http://127.0.0.1:4177/` and click **Sign in with Google**.
 
-On first sign-in, JayGrid loads cloud schedules for the selected semester. Existing Spring 2027 plans become **Schedule 1**. To copy a guest schedule into the account, choose its semester and click **Add schedule from this device**. The local copy stays in the browser as a backup.
+On first sign-in, JayGrid loads cloud schedules for the selected semester and the global watchlist. Existing Spring 2027 plans become **Schedule 1**. To copy a guest schedule into the account, choose its semester and click **Add schedule from this device**. In Watchlist, use **Import from this device** to copy guest courses and notes into the account. The local copies stay in the browser as backups.
 
 ## Turn on sign-in on Vercel
 

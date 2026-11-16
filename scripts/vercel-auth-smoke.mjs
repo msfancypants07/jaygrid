@@ -68,6 +68,17 @@ try {
   assert.equal(fallSave.status, 200);
   const springAgain = await (await handle(request('/api/plan?term=Spring%202027', { headers: { cookie: session } }))).json();
   assert.equal(springAgain.schedules[0].entries[0].code, entry.code);
+  const emptyWatchlist = await (await handle(request('/api/watchlist', { headers: { cookie: session } }))).json();
+  assert.deepEqual(emptyWatchlist, { items: [], version: 0 });
+  const watched = [{ code: 'EN.601.415', title: 'Databases', notes: 'Consider as an elective', addedAt: new Date().toISOString(), seenTerms: ['Fall 2026'], checks: {} }];
+  const watchSave = await handle(request('/api/watchlist', { method: 'PUT', headers: { cookie: session, origin, 'content-type': 'application/json' }, body: JSON.stringify({ items: watched, version: 0 }) }));
+  assert.equal(watchSave.status, 200);
+  const savedWatchlist = await (await handle(request('/api/watchlist', { headers: { cookie: session } }))).json();
+  assert.equal(savedWatchlist.items[0].notes, 'Consider as an elective');
+  const watchConflict = await handle(request('/api/watchlist', { method: 'PUT', headers: { cookie: session, origin, 'content-type': 'application/json' }, body: JSON.stringify({ items: watched, version: 0 }) }));
+  assert.equal(watchConflict.status, 409);
+  const watchUnauthenticated = await handle(request('/api/watchlist'));
+  assert.equal(watchUnauthenticated.status, 401);
   const conflict = await handle(request('/api/plan', { method: 'PUT', headers: { cookie: session, origin, 'content-type': 'application/json' }, body: JSON.stringify({ schedules, version: 0 }) }));
   assert.equal(conflict.status, 409);
   const csrf = await handle(request('/api/plan', { method: 'PUT', headers: { cookie: session, origin: 'https://evil.example', 'content-type': 'application/json' }, body: JSON.stringify({ schedules, version: 1 }) }));

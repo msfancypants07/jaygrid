@@ -6,6 +6,7 @@ const SEARCH_TTL = 15 * 60 * 1000;
 const CONFIG_TTL = 10 * 60 * 1000;
 const searchCache = new Map();
 let configCache = null;
+let termsCache = null;
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -98,6 +99,22 @@ async function search(q, page, term, refresh = false) {
   while (searchCache.size > 60) searchCache.delete(searchCache.keys().next().value);
   return value;
 }
+async function publishedTerms() {
+  if (termsCache && termsCache.expires > Date.now()) return termsCache.value;
+  const config = await getConfig();
+  const url = new URL(`https://${config.typesenseNearestNode}/collections/${encodeURIComponent(config.typesenseSchemaName)}/documents/search`);
+  for (const [key, value] of Object.entries({ q: '*', query_by: 'Title', facet_by: 'Term_JSS', max_facet_values: '250', per_page: '1' })) url.searchParams.set(key, value);
+  const response = await fetch(url, { headers: { 'X-TYPESENSE-API-KEY': config.typesenseApiKey, accept: 'application/json' } });
+  if (!response.ok) throw new Error(`Course terms unavailable (${response.status})`);
+  const raw = await response.json();
+  const facet = raw.facet_counts?.find(item => item.field_name === 'Term_JSS');
+  if (!facet) throw new Error('Course terms unavailable');
+  const seasonOrder = { Spring: 0, Summer: 1, Fall: 2 };
+  const terms = facet.counts.map(item => item.value).filter(term => TERM_PATTERN.test(term))
+    .sort((a, b) => Number(b.slice(-4)) - Number(a.slice(-4)) || seasonOrder[b.split(' ')[0]] - seasonOrder[a.split(' ')[0]]);
+  termsCache = { value: terms, expires: Date.now() + 60 * 60 * 1000 };
+  return terms;
+}
 export default {
   async fetch(request) {
     const url = new URL(request.url);
@@ -105,6 +122,10 @@ export default {
     if (url.pathname === '/') return staticResponse(page, 'text/html; charset=utf-8');
     if (url.pathname === '/styles.css') return staticResponse(styles, 'text/css; charset=utf-8');
     if (url.pathname === '/app.js') return staticResponse(client, 'text/javascript; charset=utf-8');
+    if (url.pathname === '/api/terms') {
+      try { return json({ terms: await publishedTerms() }); }
+      catch { return json({ error: 'Could not check published JHU semesters.' }, 502); }
+    }
     if (url.pathname === '/api/search') {
       const q = (url.searchParams.get('q') || '').trim();
       const term = url.searchParams.get('term') || 'Spring 2027';
