@@ -1,0 +1,8 @@
+.git/
+.openai/
+node_modules/
+local/data/
+local/.env
+.env.local
+.env
+outputs/
