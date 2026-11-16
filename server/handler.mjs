@@ -2,8 +2,8 @@ import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { deflateRawSync, inflateRawSync } from 'node:zlib';
 import { createClient } from '@supabase/supabase-js';
 import site from '../dist/server/index.js';
+import { DEFAULT_TERM, normalizedSchedules, validSchedules, validTerm } from '../shared/plans.mjs';
 
-const TERM = 'Spring 2027';
 const SESSION_AGE = 30 * 24 * 60 * 60;
 
 function settings() {
@@ -69,13 +69,6 @@ async function account(request, config) {
   const currentCookie = () => setCookie('jaygrid_session', sealed({ storage: data }, 'jaygrid_session', config.secret), SESSION_AGE, config.origin);
   return { client, user: result.data.user, currentCookie };
 }
-function validEntries(entries) {
-  return Array.isArray(entries) && entries.length <= 100 && entries.every(e =>
-    e && typeof e.id === 'string' && e.id.length <= 100 &&
-    typeof e.title === 'string' && e.title.length <= 300 &&
-    typeof e.code === 'string' && e.code.length <= 80 && Array.isArray(e.meetings));
-}
-
 export async function handle(request, route = new URL(request.url).pathname) {
   const config = settings();
   if (route === '/api/search') return site.fetch(request);
@@ -119,24 +112,28 @@ export async function handle(request, route = new URL(request.url).pathname) {
     if (request.method === 'PUT' && request.headers.get('origin') !== config.origin) return respond({ error: 'Invalid request origin.' }, 403);
     const current = await account(request, config);
     if (!current) return respond({ error: 'Sign in to save your plan.' }, 401);
+    const term = new URL(request.url).searchParams.get('term') || DEFAULT_TERM;
+    if (!validTerm(term)) return respond({ error: 'Invalid semester.' }, 400);
     const query = current.client.from('jaygrid_plans');
     if (request.method === 'GET') {
-      const { data, error } = await query.select('entries,version').eq('user_id', current.user.id).eq('term', TERM).maybeSingle();
+      const { data, error } = await query.select('entries,version').eq('user_id', current.user.id).eq('term', term).maybeSingle();
       if (error) return respond({ error: 'Could not load your cloud plan.' }, 502, [current.currentCookie()]);
-      return respond({ entries: data?.entries || [], version: Number(data?.version) || 0 }, 200, [current.currentCookie()]);
+      const schedules = normalizedSchedules(data?.entries || []);
+      if (!schedules) return respond({ error: 'Your cloud schedules could not be read.' }, 502, [current.currentCookie()]);
+      return respond({ schedules, version: Number(data?.version) || 0 }, 200, [current.currentCookie()]);
     }
     let body;
     try { const text = await request.text(); if (text.length > 512_000) throw Error(); body = JSON.parse(text); }
     catch { return respond({ error: 'Invalid plan data.' }, 400); }
-    if (!validEntries(body.entries) || !Number.isSafeInteger(body.version) || body.version < 0)
+    if (!validSchedules(body.schedules) || !Number.isSafeInteger(body.version) || body.version < 0)
       return respond({ error: 'Invalid plan data.' }, 400);
-    const update = { entries: body.entries, version: body.version + 1, updated_at: new Date().toISOString() };
+    const update = { entries: body.schedules, version: body.version + 1, updated_at: new Date().toISOString() };
     let result;
     if (body.version === 0) {
-      result = await query.insert({ user_id: current.user.id, term: TERM, ...update }).select('version').maybeSingle();
+      result = await query.insert({ user_id: current.user.id, term, ...update }).select('version').maybeSingle();
       if (result.error?.code === '23505') return respond({ error: 'This plan changed on another device. Reload before saving.' }, 409, [current.currentCookie()]);
     } else {
-      result = await query.update(update).eq('user_id', current.user.id).eq('term', TERM)
+      result = await query.update(update).eq('user_id', current.user.id).eq('term', term)
         .eq('version', body.version).select('version').maybeSingle();
     }
     if (result.error) return respond({ error: 'Could not save your cloud plan.' }, 502, [current.currentCookie()]);

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { createClient } from '@supabase/supabase-js';
 import site from './site.mjs';
+import { DEFAULT_TERM, normalizedSchedules, validSchedules, validTerm } from '../shared/plans.mjs';
 
 const envPath = join(import.meta.dirname, '.env');
 if (existsSync(envPath)) process.loadEnvFile(envPath);
@@ -14,7 +15,6 @@ const origin = process.env.PUBLIC_ORIGIN || `http://${host}:${port}`;
 const supabaseUrl = process.env.SUPABASE_URL || '';
 const publishableKey = process.env.SUPABASE_PUBLISHABLE_KEY || '';
 const configured = Boolean(supabaseUrl && publishableKey);
-const term = 'Spring 2027';
 const secureCookie = new URL(origin).protocol === 'https:';
 const dataDir = join(import.meta.dirname, 'data');
 mkdirSync(dataDir, { recursive: true, mode: 0o700 });
@@ -86,13 +86,6 @@ async function readBody(req) {
   }
   return JSON.parse(body);
 }
-function validEntries(entries) {
-  return Array.isArray(entries) && entries.length <= 100 && entries.every(e =>
-    e && typeof e.id === 'string' && e.id.length <= 100 &&
-    typeof e.title === 'string' && e.title.length <= 300 &&
-    typeof e.code === 'string' && e.code.length <= 80 && Array.isArray(e.meetings));
-}
-
 async function handle(req, res) {
   const url = new URL(req.url, origin);
   if (url.pathname === '/api/account' && req.method === 'GET') {
@@ -143,18 +136,22 @@ async function handle(req, res) {
     if (req.method === 'PUT' && !sameOrigin(req)) return json(res, 403, { error: 'Invalid request origin.' });
     const current = await account(req);
     if (!current) return json(res, 401, { error: 'Sign in to save your plan.' });
+    const term = url.searchParams.get('term') || DEFAULT_TERM;
+    if (!validTerm(term)) return json(res, 400, { error: 'Invalid semester.' });
     const query = current.client.from('jaygrid_plans');
     if (req.method === 'GET') {
       const { data, error } = await query.select('entries,version').eq('user_id', current.user.id).eq('term', term).maybeSingle();
       current.save();
       if (error) return json(res, 502, { error: 'Could not load your cloud plan.' });
-      return json(res, 200, { entries: data?.entries || [], version: Number(data?.version) || 0 });
+      const schedules = normalizedSchedules(data?.entries || []);
+      if (!schedules) return json(res, 502, { error: 'Your cloud schedules could not be read.' });
+      return json(res, 200, { schedules, version: Number(data?.version) || 0 });
     }
     let body;
     try { body = await readBody(req); } catch { return json(res, 400, { error: 'Invalid plan data.' }); }
-    if (!validEntries(body.entries) || !Number.isSafeInteger(body.version) || body.version < 0)
+    if (!validSchedules(body.schedules) || !Number.isSafeInteger(body.version) || body.version < 0)
       return json(res, 400, { error: 'Invalid plan data.' });
-    const update = { entries: body.entries, version: body.version + 1, updated_at: new Date().toISOString() };
+    const update = { entries: body.schedules, version: body.version + 1, updated_at: new Date().toISOString() };
     let result;
     if (body.version === 0) {
       result = await query.insert({ user_id: current.user.id, term, ...update }).select('version').maybeSingle();

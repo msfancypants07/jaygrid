@@ -1,8 +1,8 @@
 # JayGrid account setup
 
-JayGrid has Google sign-in and Supabase plan syncing in its code. The live account feature is waiting for database and Google provider setup. The existing local planner continues to work.
+JayGrid has Google sign-in and Supabase schedule syncing. The live project is configured; these steps are for local use or a new Supabase project.
 
-The Vercel site is live at `https://jaygrid.vercel.app/`. Its course search is public, while account sync remains off until setup is complete. The current plan stays in each browser.
+The Vercel site is live at `https://jaygrid.vercel.app/`. Guests' schedules stay in each browser; signed-in schedules sync to the account.
 
 ## Connect Supabase
 
@@ -13,18 +13,18 @@ The Vercel site is live at `https://jaygrid.vercel.app/`. Its course search is p
 5. Copy `local/.env.example` to `local/.env`. Fill in your Supabase Project URL and **publishable** key from Supabase's API settings. Do not put a service-role key or Google client secret in `.env`.
 6. Open `local/start.command`, then visit `http://127.0.0.1:4177/` and click **Sign in with Google**.
 
-On first sign-in, JayGrid loads the cloud plan. If this browser already has a local plan, click **Add plan from this device** to copy its sections into your account. The local copy stays in the browser as a backup.
+On first sign-in, JayGrid loads cloud schedules for the selected semester. Existing Spring 2027 plans become **Schedule 1**. To copy a guest schedule into the account, choose its semester and click **Add schedule from this device**. The local copy stays in the browser as a backup.
 
 ## Turn on sign-in on Vercel
 
-The Vercel project `jaygrid` already has `PUBLIC_ORIGIN`, `SESSION_SECRET`, `SUPABASE_URL`, and `SUPABASE_PUBLISHABLE_KEY` in Production settings. After the table, Google provider, and redirect URLs are configured in Supabase, redeploy the project to apply the Supabase settings. Do not add the service-role key or Google client secret to Vercel; the Google secret belongs only in Supabase's Google provider settings.
+The Vercel project `jaygrid` already has `PUBLIC_ORIGIN`, `SESSION_SECRET`, `SUPABASE_URL`, and `SUPABASE_PUBLISHABLE_KEY` in Production settings. Deploy from the linked checkout to apply code changes. Do not add the service-role key or Google client secret to Vercel; the Google secret belongs only in Supabase's Google provider settings.
 
 The live site uses an encrypted, HTTP-only cookie for its sign-in session. No schedule data is stored in that cookie. The local launcher uses a local session database instead.
 
 ## Access from another device
 
-Open `https://jaygrid.vercel.app/` on the other device. Once Supabase and Google sign-in are connected, signing into the same account will load the cloud plan there. Before that setup, each browser has a separate local plan.
+Open `https://jaygrid.vercel.app/` on the other device. Sign into the same Google account, select a semester, then choose the schedule version you want. Guest schedules remain local to each browser.
 
-If you made a plan at `http://127.0.0.1:4177/`, it will not automatically appear at the Vercel address because they have different browser storage. Export a JSON backup from the local site and restore it at the Vercel address, then use **Add plan from this device** after signing in.
+If you made a schedule at `http://127.0.0.1:4177/`, it will not automatically appear at the Vercel address because they have different browser storage. Export a JSON backup from the local site. At the Vercel site, sign in, select the same semester, create a new schedule, and restore that backup.
 
 For a production launch, configure backup of the Supabase database. The free Supabase plan does not include automatic database backups.

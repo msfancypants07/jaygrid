@@ -1,7 +1,7 @@
 const page = __PAGE_HTML__;
 const styles = __PAGE_CSS__;
 const client = __PAGE_JS__;
-const TERM = 'Spring 2027';
+const TERM_PATTERN = /^(Spring|Summer|Fall) 20\d{2}$/;
 const SEARCH_TTL = 15 * 60 * 1000;
 const CONFIG_TTL = 10 * 60 * 1000;
 const searchCache = new Map();
@@ -75,8 +75,8 @@ async function getConfig() {
   configCache = { value, expires: Date.now() + CONFIG_TTL };
   return value;
 }
-async function search(q, page, refresh = false) {
-  const key = `${q.toLowerCase()}|${page}`;
+async function search(q, page, term, refresh = false) {
+  const key = `${term}|${q.toLowerCase()}|${page}`;
   const cached = searchCache.get(key);
   if (!refresh && cached && cached.expires > Date.now()) return { ...cached.value, cache: 'server' };
   const config = await getConfig();
@@ -84,14 +84,14 @@ async function search(q, page, refresh = false) {
   const url = new URL(`https://${config.typesenseNearestNode}/collections/${encodeURIComponent(config.typesenseSchemaName)}/documents/search`);
   url.searchParams.set('q', courseCode ? '*' : q);
   url.searchParams.set('query_by', 'Title,OfferingName,OfferingVariations,SectionName,InstructorsFullName');
-  url.searchParams.set('filter_by', `Term_JSS:=[\`Spring 2027\`]${courseCode ? ` && OfferingName:=\`${courseCode}\`` : ''}`);
+  url.searchParams.set('filter_by', `Term_JSS:=[\`${term}\`]${courseCode ? ` && OfferingName:=\`${courseCode}\`` : ''}`);
   url.searchParams.set('sort_by', '_text_match:desc,OfferingName:asc,SectionName:asc');
   url.searchParams.set('per_page', '30');
   url.searchParams.set('page', String(page));
   const response = await fetch(url, { headers: { 'X-TYPESENSE-API-KEY': config.typesenseApiKey, accept: 'application/json' } });
   if (!response.ok) throw new Error(`Course search unavailable (${response.status})`);
   const raw = await response.json();
-  const value = { query: q, term: TERM, page, perPage: 30, found: Number(raw.found) || 0,
+  const value = { query: q, term, page, perPage: 30, found: Number(raw.found) || 0,
     results: (raw.hits || []).map(hit => normalizeCourse(hit.document || {})),
     fetchedAt: new Date().toISOString(), cache: 'live' };
   searchCache.set(key, { value, expires: Date.now() + SEARCH_TTL });
@@ -107,9 +107,10 @@ export default {
     if (url.pathname === '/app.js') return staticResponse(client, 'text/javascript; charset=utf-8');
     if (url.pathname === '/api/search') {
       const q = (url.searchParams.get('q') || '').trim();
+      const term = url.searchParams.get('term') || 'Spring 2027';
       const pageNumber = Number(url.searchParams.get('page') || 1);
-      if (q.length < 2 || q.length > 80 || !Number.isInteger(pageNumber) || pageNumber < 1 || pageNumber > 20) return json({ error: 'Enter a query of 2–80 characters and a page from 1–20.' }, 400);
-      try { return json(await search(q, pageNumber, url.searchParams.get('refresh') === '1')); }
+      if (q.length < 2 || q.length > 80 || !TERM_PATTERN.test(term) || !Number.isInteger(pageNumber) || pageNumber < 1 || pageNumber > 20) return json({ error: 'Enter a query of 2–80 characters, a valid semester, and a page from 1–20.' }, 400);
+      try { return json(await search(q, pageNumber, term, url.searchParams.get('refresh') === '1')); }
       catch (error) { return json({ error: 'JHU course search is temporarily unavailable. You can still add a section manually.' }, 502); }
     }
     return new Response('Not found', { status: 404 });
