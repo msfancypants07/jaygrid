@@ -5,6 +5,7 @@ const SCHEDULE_KEY = 'jaygrid-selected-schedules';
 const CACHE_KEY = 'springboard-search-cache-v2';
 const WATCHLIST_KEY = 'jaygrid-watchlist-v1';
 const WATCH_TERM_KEY = 'jaygrid-watch-check-term';
+const PANELS_KEY = 'jaygrid-hidden-panels';
 const CACHE_TTL = 30 * 60 * 1000;
 const dayNames = { M: 'Mon', Tu: 'Tue', W: 'Wed', Th: 'Thu', F: 'Fri' };
 const dayOrder = Object.keys(dayNames);
@@ -407,7 +408,31 @@ async function initAccount() {
   } catch (error) { authStatus.textContent = error.message || 'Could not load your account.'; }
   finally { loadingTerm = false; termSelect.disabled = false; renderScheduleControls(); }
 }
-setManualDates(); renderRecent(); render(); initWatchlist(); initAccount();
+function initPanelToggles() {
+  const workspace = document.getElementById('planner-view');
+  let hidden = {};
+  try { hidden = JSON.parse(localStorage.getItem(PANELS_KEY) || '{}') || {}; } catch { /* default: both shown */ }
+  const panels = [
+    { side: 'left', button: document.getElementById('toggle-left'), name: 'Search', what: 'course search' },
+    { side: 'right', button: document.getElementById('toggle-right'), name: 'Schedules', what: 'schedules' },
+  ];
+  const apply = () => {
+    for (const { side, button, name, what } of panels) {
+      const isHidden = !!hidden[side];
+      workspace.classList.toggle(`hide-${side}`, isHidden);
+      button.setAttribute('aria-expanded', String(!isHidden));
+      button.title = `${isHidden ? 'Show' : 'Hide'} ${what}`;
+      button.textContent = side === 'left' ? `${isHidden ? '▸' : '◂'} ${name}` : `${name} ${isHidden ? '◂' : '▸'}`;
+    }
+  };
+  for (const { side, button } of panels) button.onclick = () => {
+    hidden = { ...hidden, [side]: !hidden[side] };
+    try { localStorage.setItem(PANELS_KEY, JSON.stringify(hidden)); } catch { /* not persisted */ }
+    apply();
+  };
+  apply();
+}
+setManualDates(); renderRecent(); render(); initWatchlist(); initAccount(); initPanelToggles();
 
 function normalizeWatchItem(item) {
   if (!item || typeof item.code !== 'string' || typeof item.title !== 'string') return null;

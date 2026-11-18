@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
-  <script defer src="app.js?v=7"></script>
+  <script defer src="app.js?v=8"></script>
 </head>
 <body>
   <header class="topbar">
@@ -20,7 +20,7 @@
   </header>
   <main class="shell">
     <section id="planner-view" class="workspace" aria-label="Course planner">
-      <aside class="left-panel">
+      <aside id="left-panel" class="left-panel">
         <div class="panel-heading"><h2>Find a course</h2></div>
         <form id="official-search" class="official-search"><label id="search-label" for="catalog-query">Spring 2027 courses</label><div class="search-row"><input id="catalog-query" placeholder="Course, code, or instructor" autocomplete="off"><button class="search-button" type="submit" aria-label="Search JHU courses">⌕</button></div><small>Live results from JHU’s public course search</small></form>
         <div id="recent-searches" class="recent-searches" hidden></div>
@@ -39,12 +39,12 @@
         </form></details>
       </aside>
       <section class="calendar-panel">
-        <div class="calendar-heading"><h2>Weekly schedule</h2><div class="calendar-legend"><span class="legend-swatch"></span> Class</div></div>
+        <div class="calendar-heading"><div class="calendar-title"><button id="toggle-left" class="panel-toggle" type="button" aria-controls="left-panel" aria-expanded="true" title="Hide course search">◂ Search</button><h2>Weekly schedule</h2></div><div class="calendar-tools"><div class="calendar-legend"><span class="legend-swatch"></span> Class</div><button id="toggle-right" class="panel-toggle" type="button" aria-controls="right-panel" aria-expanded="true" title="Hide schedules">Schedules ▸</button></div></div>
         <div id="conflict-banner" class="conflict-banner" hidden></div>
         <div class="calendar-scroll"><div class="calendar" id="calendar"><div class="time-col" id="time-col"></div><div class="day-columns" id="day-columns"></div></div></div>
         <p class="calendar-note">Eastern Time · Check SIS for date exceptions.</p>
       </section>
-      <aside class="right-panel"><div class="panel-heading"><h2>Schedules</h2><div class="schedule-controls"><select id="schedule-select" aria-label="Schedule version"></select><button id="new-schedule" type="button" title="Create an empty schedule">＋ New</button><button id="copy-schedule" type="button" title="Copy this schedule">Duplicate</button><button id="rename-schedule" type="button" title="Rename this schedule">Rename</button><button id="delete-schedule" type="button" title="Delete this schedule">Delete</button></div><p id="summary">No sections added yet.</p></div><div id="course-list" class="course-list"></div><div class="plan-actions"><button id="import-local-plan" type="button" hidden>↑ Add schedule from this device</button><button id="download-ics" type="button" disabled>↓ Export calendar</button><button id="download-json" type="button" disabled>↓ Back up schedule</button><label class="import-label" for="import-json">↑ Restore a schedule<input id="import-json" type="file" accept="application/json,.json" hidden></label></div><p id="auth-status" class="privacy-note" role="status" aria-live="polite">Saved on this device. Planning only; registration happens in SIS.</p></aside>
+      <aside id="right-panel" class="right-panel"><div class="panel-heading"><h2>Schedules</h2><div class="schedule-controls"><select id="schedule-select" aria-label="Schedule version"></select><button id="new-schedule" type="button" title="Create an empty schedule">＋ New</button><button id="copy-schedule" type="button" title="Copy this schedule">Duplicate</button><button id="rename-schedule" type="button" title="Rename this schedule">Rename</button><button id="delete-schedule" type="button" title="Delete this schedule">Delete</button></div><p id="summary">No sections added yet.</p></div><div id="course-list" class="course-list"></div><div class="plan-actions"><button id="import-local-plan" type="button" hidden>↑ Add schedule from this device</button><button id="download-ics" type="button" disabled>↓ Export calendar</button><button id="download-json" type="button" disabled>↓ Back up schedule</button><label class="import-label" for="import-json">↑ Restore a schedule<input id="import-json" type="file" accept="application/json,.json" hidden></label></div><p id="auth-status" class="privacy-note" role="status" aria-live="polite">Saved on this device. Planning only; registration happens in SIS.</p></aside>
     </section>
     <section id="watchlist-view" class="watchlist-view" aria-label="Course watchlist" hidden>
       <div class="watch-heading"><div><h1>Watchlist</h1><p>Save courses across semesters and check when they appear again.</p></div><button id="import-device-watchlist" type="button" hidden>Import from this device</button></div>
