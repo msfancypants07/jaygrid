@@ -38,6 +38,8 @@ const watchSearch = { query: '', results: [], truncated: false };
 let watchSearchRequestId = 0;
 const watchErrors = new Set();
 const noteDrafts = new Map();
+const descriptionCache = new Map();
+const openDescriptions = new Set();
 
 function validMeeting(m) {
   return m && Array.isArray(m.days) && m.days.length > 0 && m.days.every(d => dayOrder.includes(d)) &&
@@ -233,20 +235,31 @@ function render() {
   const credits = entries.reduce((n, e) => n + e.credits, 0);
   document.getElementById('summary').textContent = entries.length ? `${entries.length} section${entries.length === 1 ? '' : 's'} · ${credits.toLocaleString()} credits` : 'No sections added yet.';
   if (!entries.length) { const empty = document.createElement('div'); empty.className = 'empty-list'; empty.innerHTML = '<span>◇</span>No courses yet.'; list.append(empty); }
-  for (const e of entries) {
+  for (const [index, e] of entries.entries()) {
     const card = document.createElement('article'); card.className = 'course-card'; const top = document.createElement('div'); top.className = 'course-card-top';
-    const content = document.createElement('div'), code = document.createElement('div'), title = document.createElement('div');
+    const content = document.createElement('div'), codeRow = document.createElement('div'), colorDot = document.createElement('span'), code = document.createElement('div'), title = document.createElement('div');
     code.className = 'course-code'; title.className = 'course-title'; text(code, `${e.code}${e.section ? ` (${e.section})` : ''}`); text(title, e.title);
-    content.append(code, title); top.append(content);
+    codeRow.className = 'course-code-row'; colorDot.className = 'course-color-dot'; colorDot.style.backgroundColor = conflicts.has(e.id) ? '#c76757' : colors[index % colors.length][1];
+    codeRow.append(colorDot, code); content.append(codeRow, title); top.append(content);
     const del = document.createElement('button'); del.type = 'button'; del.className = 'remove-button'; del.setAttribute('aria-label', `Remove ${e.title}`); del.textContent = '×';
     del.onclick = async () => { await savePlan(entries.filter(x => x.id !== e.id)); }; top.append(del); card.append(top);
     if (!e.meetings.length) { const meta = document.createElement('div'); meta.className = 'course-meta'; text(meta, 'No scheduled meeting time'); card.append(meta); }
     for (const m of e.meetings) { const meta = document.createElement('div'); meta.className = 'course-meta'; text(meta, `${meetingLabel(m)}${m.location ? ' · ' + m.location : ''}`); card.append(meta); }
     if (e.instructor) { const instructor = document.createElement('div'); instructor.className = 'course-meta'; text(instructor, e.instructor); card.append(instructor); }
     const foot = document.createElement('div'); foot.className = 'course-foot';
-    const chip = document.createElement('span'); chip.className = 'status-chip'; text(chip, conflicts.has(e.id) ? 'Time conflict' : e.status);
+    const left = document.createElement('div'); left.className = 'course-foot-left';
+    if (conflicts.has(e.id)) { const chip = document.createElement('span'); chip.className = 'status-chip conflict-chip'; text(chip, 'Time conflict'); left.append(chip); }
+    const status = document.createElement('select'); status.className = 'course-status'; status.setAttribute('aria-label', `My status for ${e.title}`);
+    for (const [value, label] of [['Planning', 'Set my status'], ['Enrolled', 'Enrolled'], ['Waitlisted', 'Waitlisted']]) {
+      const option = document.createElement('option'); option.value = value; option.textContent = label; status.append(option);
+    }
+    status.value = ['Enrolled', 'Waitlisted'].includes(e.status) ? e.status : 'Planning';
+    status.onchange = async () => { const previous = e.status; status.disabled = true;
+      if (!await savePlan(entries.map(entry => entry.id === e.id ? { ...entry, status: status.value } : entry))) { status.value = previous; status.disabled = false; }
+    };
+    left.append(status);
     const cr = document.createElement('span'); cr.className = 'course-credits'; text(cr, e.credits ? `${e.credits.toLocaleString()} credit${e.credits === 1 ? '' : 's'}` : 'Credits TBA');
-    foot.append(chip, cr); card.append(foot); list.append(card);
+    foot.append(left, cr); card.append(foot); list.append(card);
   }
   document.getElementById('download-ics').disabled = !entries.some(e => e.meetings.length); document.getElementById('download-json').disabled = !entries.length;
   const banner = document.getElementById('conflict-banner'); banner.hidden = !conflicts.size;
@@ -534,13 +547,32 @@ function renderWatchlist() {
     main.append(info, status); row.append(main);
     const actions = document.createElement('div'); actions.className = 'watch-row-actions';
     if (item.checks[selectedWatchTerm]?.found > 0 && publishedTerms?.includes(selectedWatchTerm)) {
-      const add = document.createElement('button'); add.type = 'button'; text(add, 'Find sections for planner');
+      const add = document.createElement('button'); add.type = 'button'; add.className = 'watch-planner-link'; text(add, `View sections · ${selectedWatchTerm}`);
       add.onclick = () => openPlannerFor(item.code); actions.append(add);
     }
     const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'remove-watch'; text(remove, 'Remove');
     remove.disabled = watchSaving || watchChecking; remove.onclick = async () => {
       if (confirm(`Remove ${item.code} from your watchlist?`)) await commitWatchlist(watchlist.filter(saved => saved.code !== item.code));
     }; actions.append(remove); row.append(actions);
+    const description = document.createElement('details'); description.className = 'watch-description'; description.open = openDescriptions.has(item.code);
+    const descriptionSummary = document.createElement('summary'); text(descriptionSummary, 'Description');
+    const descriptionBody = document.createElement('p');
+    const renderDescription = () => { const course = descriptionCache.get(item.code);
+      text(descriptionBody, course ? (course.description ? `${course.description}${course.descriptionTerm ? ` — ${course.descriptionTerm} catalog` : ''}` : 'No description is available in JHU’s course listings.') : 'Loading description…');
+    };
+    description.append(descriptionSummary, descriptionBody); if (description.open) renderDescription();
+    description.ontoggle = async () => {
+      if (!description.open) { openDescriptions.delete(item.code); return; }
+      openDescriptions.add(item.code); renderDescription();
+      if (descriptionCache.has(item.code)) return;
+      try {
+        const response = await fetch(`/api/watch-search?q=${encodeURIComponent(item.code)}`); const data = await response.json();
+        if (!response.ok || !Array.isArray(data.results)) throw new Error();
+        const course = data.results.find(result => result.code === item.code);
+        descriptionCache.set(item.code, course || { description: '', descriptionTerm: '' }); renderDescription();
+      } catch { text(descriptionBody, 'Could not load the description. Close and reopen to retry.'); }
+    };
+    row.append(description);
     const note = document.createElement('details'); note.className = 'watch-note';
     const summary = document.createElement('summary'); text(summary, item.notes ? `Notes · ${item.notes.replace(/\s+/g, ' ').slice(0, 95)}${item.notes.length > 95 ? '…' : ''}` : 'Notes · Add a note'); note.append(summary);
     const textarea = document.createElement('textarea'); textarea.value = noteDrafts.get(item.code) ?? item.notes; textarea.maxLength = 2000; textarea.placeholder = 'Why do you want to take this course? Anything to remember?'; textarea.setAttribute('aria-label', `Notes for ${item.code}`);
@@ -627,6 +659,7 @@ async function searchAcrossYears(query) {
     if (data.query?.trim().toLowerCase() !== q.toLowerCase() || !Array.isArray(data.results)) throw new Error('Search returned mismatched results.');
     if (requestId !== watchSearchRequestId) return;
     watchSearch.results = data.results; watchSearch.truncated = Boolean(data.truncated);
+    for (const course of data.results) descriptionCache.set(course.code, course);
     renderHistoryResults();
     status.textContent = data.results.length ? `${data.results.length} courses across all catalog years.${data.truncated ? ' Showing the most relevant matches; refine your search for more.' : ''}` : `No courses found for “${q}” in the catalog.`;
   } catch (error) { if (requestId === watchSearchRequestId) status.textContent = error.message || 'Course search unavailable.'; }

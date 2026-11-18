@@ -6,11 +6,12 @@
   <meta name="theme-color" content="#101d31">
   <meta name="description" content="A private, browser-based planner for Johns Hopkins course schedules.">
   <title>JayGrid — JHU course planner</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=9">
-  <script defer src="app.js?v=9"></script>
+  <link rel="stylesheet" href="styles.css?v=10">
+  <script defer src="app.js?v=10"></script>
 </head>
 <body>
   <header class="topbar">
@@ -33,13 +34,13 @@
           <div class="field-grid"><label class="wide">Course title <span>*</span><input name="title" required placeholder="e.g. Databases"></label><label>Course code <span>*</span><input name="code" required placeholder="EN.601.415"></label><label>Section<input name="section" placeholder="01"></label></div>
           <div class="field-grid"><label class="wide">Instructor<input name="instructor" placeholder="Optional"></label></div>
           <fieldset class="days"><legend>Meeting days <span>*</span></legend><div class="day-choices"><label><input type="checkbox" name="days" value="M"><span>M</span></label><label><input type="checkbox" name="days" value="Tu"><span>Tu</span></label><label><input type="checkbox" name="days" value="W"><span>W</span></label><label><input type="checkbox" name="days" value="Th"><span>Th</span></label><label><input type="checkbox" name="days" value="F"><span>F</span></label></div></fieldset>
-          <div class="field-grid"><label>Starts <span>*</span><input type="time" name="start" required value="09:00"></label><label>Ends <span>*</span><input type="time" name="end" required value="10:15"></label><label>First class <span>*</span><input type="date" name="firstDate" required value="2027-01-25"></label><label>Last class <span>*</span><input type="date" name="lastDate" required value="2027-04-30"></label><label class="wide">Location<input name="location" placeholder="Building / room or online"></label><label>Credits<input type="number" name="credits" min="0" max="30" step="0.5" placeholder="3"></label><label>Status<select name="status"><option>Planning</option><option>Enrolled</option><option>Waitlisted</option></select></label></div>
+          <div class="field-grid"><label>Starts <span>*</span><input type="time" name="start" required value="09:00"></label><label>Ends <span>*</span><input type="time" name="end" required value="10:15"></label><label>First class <span>*</span><input type="date" name="firstDate" required value="2027-01-25"></label><label>Last class <span>*</span><input type="date" name="lastDate" required value="2027-04-30"></label><label class="wide">Location<input name="location" placeholder="Building / room or online"></label><label>Credits<input type="number" name="credits" min="0" max="30" step="0.5" placeholder="3"></label><label>My status<select name="status"><option value="Planning">Not set</option><option>Enrolled</option><option>Waitlisted</option></select></label></div>
           <p class="date-note">Check your section’s dates before exporting.</p>
           <p id="form-error" class="form-error" role="alert" hidden></p><button class="add-button" type="submit"><span>＋</span> Add section</button>
         </form></details>
       </aside>
       <section class="calendar-panel">
-        <div class="calendar-heading"><div class="calendar-title"><button id="toggle-left" class="panel-toggle" type="button" aria-controls="left-panel" aria-expanded="true" title="Hide course search">◂ Search</button><h2>Weekly schedule</h2></div><div class="calendar-tools"><div class="calendar-legend"><span class="legend-swatch"></span> Class</div><button id="toggle-right" class="panel-toggle" type="button" aria-controls="right-panel" aria-expanded="true" title="Hide schedules">Schedules ▸</button></div></div>
+        <div class="calendar-heading"><div class="calendar-title"><button id="toggle-left" class="panel-toggle" type="button" aria-controls="left-panel" aria-expanded="true" title="Hide course search">◂ Search</button><h2>Weekly schedule</h2></div><div class="calendar-tools"><button id="toggle-right" class="panel-toggle" type="button" aria-controls="right-panel" aria-expanded="true" title="Hide schedules">Schedules ▸</button></div></div>
         <div id="conflict-banner" class="conflict-banner" hidden></div>
         <div class="calendar-scroll"><div class="calendar" id="calendar"><div class="time-col" id="time-col"></div><div class="day-columns" id="day-columns"></div></div></div>
         <p class="calendar-note">Eastern Time · Check SIS for date exceptions.</p>

@@ -1,6 +1,7 @@
 const page = __PAGE_HTML__;
 const styles = __PAGE_CSS__;
 const client = __PAGE_JS__;
+const icon = __PAGE_ICON__;
 const TERM_PATTERN = /^(Spring|Summer|Fall) 20\d{2}$/;
 const SEARCH_TTL = 15 * 60 * 1000;
 const CONFIG_TTL = 10 * 60 * 1000;
@@ -134,14 +135,16 @@ async function courseHistory(code, config) {
     for (const hit of raw.hits || []) {
       const doc = hit.document || {}, term = String(doc.Term || doc.Term_JSS?.[0] || ''), date = String(doc.TermStartDate || '').slice(0, 10);
       if (!/^20\d\d-\d\d-\d\d$/.test(date) || !/^(Spring|Summer|Fall|Intersession|Winter) 20\d{2}$/.test(term)) continue;
-      if (!byTerm.has(term)) byTerm.set(term, { term, date, title: String(doc.Title || '') });
+      if (!byTerm.has(term)) byTerm.set(term, { term, date, title: String(doc.Title || ''), description: String(doc.Description || doc.SectionDetails?.Description || '').trim() });
+      else if (!byTerm.get(term).description) byTerm.get(term).description = String(doc.Description || doc.SectionDetails?.Description || '').trim();
     }
     if (Array.from(byTerm.values()).filter(item => item.date <= today).length >= 5 || page * 250 >= Number(raw.found || 0)) { complete = true; break; }
   }
   const all = Array.from(byTerm.values()).sort((a, b) => b.date.localeCompare(a.date));
   const past = all.filter(item => item.date <= today).slice(0, 5);
   const upcoming = all.filter(item => item.date > today).sort((a, b) => a.date.localeCompare(b.date))[0] || null;
-  const value = { code, title: past[0]?.title || upcoming?.title || '', history: past.map(({ term, date }) => ({ term, date })),
+  const described = [...past, ...all.filter(item => item.date > today)].find(item => item.description);
+  const value = { code, title: past[0]?.title || upcoming?.title || '', description: described?.description || '', descriptionTerm: described?.term || '', history: past.map(({ term, date }) => ({ term, date })),
     upcoming: upcoming ? { term: upcoming.term, date: upcoming.date } : null, historyComplete: complete };
   historyCache.set(code, { value, expires: Date.now() + 60 * 60 * 1000 });
   while (historyCache.size > 200) historyCache.delete(historyCache.keys().next().value);
@@ -187,6 +190,7 @@ export default {
     if (url.pathname === '/') return staticResponse(page, 'text/html; charset=utf-8');
     if (url.pathname === '/styles.css') return staticResponse(styles, 'text/css; charset=utf-8');
     if (url.pathname === '/app.js') return staticResponse(client, 'text/javascript; charset=utf-8');
+    if (url.pathname === '/favicon.svg') return staticResponse(icon, 'image/svg+xml; charset=utf-8');
     if (url.pathname === '/api/terms') {
       try { return json({ terms: await publishedTerms() }); }
       catch { return json({ error: 'Could not check published JHU semesters.' }, 502); }
