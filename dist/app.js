@@ -236,14 +236,17 @@ function render() {
   for (const e of entries) {
     const card = document.createElement('article'); card.className = 'course-card'; const top = document.createElement('div'); top.className = 'course-card-top';
     const content = document.createElement('div'), code = document.createElement('div'), title = document.createElement('div');
-    code.className = 'course-code'; title.className = 'course-title'; text(code, `${e.code}${e.section ? ' · ' + e.section : ''}`); text(title, e.title);
+    code.className = 'course-code'; title.className = 'course-title'; text(code, `${e.code}${e.section ? ` (${e.section})` : ''}`); text(title, e.title);
     content.append(code, title); top.append(content);
     const del = document.createElement('button'); del.type = 'button'; del.className = 'remove-button'; del.setAttribute('aria-label', `Remove ${e.title}`); del.textContent = '×';
     del.onclick = async () => { await savePlan(entries.filter(x => x.id !== e.id)); }; top.append(del); card.append(top);
     if (!e.meetings.length) { const meta = document.createElement('div'); meta.className = 'course-meta'; text(meta, 'No scheduled meeting time'); card.append(meta); }
     for (const m of e.meetings) { const meta = document.createElement('div'); meta.className = 'course-meta'; text(meta, `${meetingLabel(m)}${m.location ? ' · ' + m.location : ''}`); card.append(meta); }
     if (e.instructor) { const instructor = document.createElement('div'); instructor.className = 'course-meta'; text(instructor, e.instructor); card.append(instructor); }
-    const chip = document.createElement('span'); chip.className = 'status-chip'; text(chip, conflicts.has(e.id) ? 'Time conflict' : e.status); card.append(chip); list.append(card);
+    const foot = document.createElement('div'); foot.className = 'course-foot';
+    const chip = document.createElement('span'); chip.className = 'status-chip'; text(chip, conflicts.has(e.id) ? 'Time conflict' : e.status);
+    const cr = document.createElement('span'); cr.className = 'course-credits'; text(cr, e.credits ? `${e.credits.toLocaleString()} credit${e.credits === 1 ? '' : 's'}` : 'Credits TBA');
+    foot.append(chip, cr); card.append(foot); list.append(card);
   }
   document.getElementById('download-ics').disabled = !entries.some(e => e.meetings.length); document.getElementById('download-json').disabled = !entries.length;
   const banner = document.getElementById('conflict-banner'); banner.hidden = !conflicts.size;
@@ -269,7 +272,7 @@ function renderCalendar(conflicts) {
       block.style.top = `${37 + (start - min) / span * 563}px`; block.style.height = `${Math.max(28, (end - start) / span * 563)}px`;
       if (count > 1) { block.style.width = `calc(${100 / count}% - 6px)`; block.style.left = `calc(${lane * 100 / count}% + 3px)`; block.style.right = 'auto'; }
       const palette = colors[index % colors.length]; if (!conflicts.has(e.id)) { block.style.background = palette[0]; block.style.borderLeftColor = palette[1]; }
-      const name = document.createElement('strong'), detail = document.createElement('span'); text(name, e.code); text(detail, `${pretty(m.start)}–${pretty(m.end)}`); block.append(name, detail);
+      const name = document.createElement('strong'), full = document.createElement('em'), detail = document.createElement('span'); text(name, e.code); full.className = 'block-title'; text(full, e.title); text(detail, `${pretty(m.start)}–${pretty(m.end)}`); block.append(name, full, detail);
       block.title = `${e.title} (${e.code})`; column.append(block);
     }); col.append(column);
   });
@@ -280,7 +283,7 @@ function renderSearchResults() {
   for (const course of searchState.results) {
     const card = document.createElement('article'); card.className = 'result-card'; const top = document.createElement('div'); top.className = 'result-top';
     const info = document.createElement('div'), title = document.createElement('div'), code = document.createElement('div');
-    title.className = 'result-title'; code.className = 'result-code'; text(title, course.title); text(code, `${course.code} · ${course.section || '—'}`); info.append(title, code); top.append(info);
+    title.className = 'result-title'; code.className = 'result-code'; text(title, course.title); text(code, `${course.code}${course.section ? ` (${course.section})` : ''}`); info.append(title, code); top.append(info);
     const add = document.createElement('button'); add.type = 'button'; add.className = 'result-add';
     const already = entries.some(e => e.sourceId && e.sourceId === course.sourceId);
     add.disabled = already; add.textContent = already ? 'Added' : '+ Add';

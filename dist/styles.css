@@ -23,3 +23,9 @@
 .workspace.hide-left.hide-right .calendar{height:720px}
 @media(max-width:1150px){.workspace.hide-left{grid-template-columns:minmax(0,1fr)}.workspace.hide-right{grid-template-columns:290px minmax(420px,1fr)}}
 @media(max-width:760px){.calendar-heading{flex-wrap:wrap}.workspace.hide-left.hide-right .calendar{height:600px}}
+.course-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:7px}
+.course-foot .status-chip{margin-top:0}
+.course-credits{font-size:10px;font-weight:700;color:#36586a;white-space:nowrap}
+.class-block .block-title{display:none;font-style:normal;font-weight:500;color:#2f4b57;margin-top:2px;overflow:hidden;text-overflow:ellipsis;display:none;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.workspace.hide-left .class-block .block-title,.workspace.hide-right .class-block .block-title{display:-webkit-box}
+@media(min-width:1151px){.right-panel{contain:size;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable}}
